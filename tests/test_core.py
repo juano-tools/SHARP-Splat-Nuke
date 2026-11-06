@@ -145,6 +145,24 @@ def test_read_ply(tmp):
     assert P.tolist() == [[1, 2, -3], [4, 5, -6]] and op.tolist() == [0.5, -1.0]
 
 
+def test_crop_ply(tmp):
+    """La caja va en el mundo (escala 2 y subido 1 m): queda el splat cercano y el conteo del header calza."""
+    src, dst = os.path.join(tmp, "s.ply"), os.path.join(tmp, "s_crop.ply")
+    pts = np.array([(0, 0, -1, 0.5), (0, 0, -500, 0.5)], dtype=[(n, "<f4") for n in ("x", "y", "z", "opacity")])
+    with open(src, "wb") as f:
+        f.write(b"ply\nformat binary_little_endian 1.0\nelement vertex 2\nproperty float x\nproperty float y\n"
+                b"property float z\nproperty float opacity\nend_header\n")
+        pts.tofile(f)
+    R, T = core.rot_zxy(0, 0, 0), [0, 1, 0]
+    W = core.to_world(core.read_ply(src)[0], R, 2.0, T)
+    assert W.tolist() == [[0, 1, -2], [0, 1, -1000]]
+    assert core.crop_ply(src, dst, [-1, 0, -10, 1, 2, 0], R, 2.0, T) == (1, 2)
+    P, _ = core.read_ply(dst)
+    assert P.tolist() == [[0, 0, -1]]
+    near = np.array([[0, 0, -d] for d in (1, 2, 3, 4)] + [[0, 0, -1000]], float)
+    assert core.fit_box(near, [0, 0, 0]) == [0, 0, -4, 0, 0, -1]  # el lejano queda fuera
+
+
 if __name__ == "__main__":
     import tempfile
     with tempfile.TemporaryDirectory() as tmp:

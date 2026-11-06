@@ -128,13 +128,9 @@ SH_C0 = 0.28209479177387814  # color = 0.5 + SH_C0 * f_dc
 ACESCG_TO_REC709 = [[1.70505, -0.62179, -0.08326], [-0.13026, 1.14080, -0.01055], [-0.02400, -0.12897, 1.15297]]
 
 
-def preview_ply(src, acescg=True):
-    """Copia del PLY con el color en Rec.709 de pantalla (gamma 2.4, recortado a 0-1), para ver los splats
-    en el viewer 3D como en el monitor. Solo previs: el color deja de ser lineal. Se crea una vez por PLY."""
+def _ply_raw(src):
+    """(header en bytes, arreglo estructurado con todas las propiedades) de un PLY binario de un elemento."""
     import numpy as np
-    dst = src[:-4] + "_rec709.ply"
-    if os.path.isfile(dst) and os.path.getmtime(dst) >= os.path.getmtime(src):
-        return dst
     types = {"float": "<f4", "double": "<f8", "uchar": "u1", "int": "<i4"}
     with open(src, "rb") as f:
         header = b""
@@ -144,7 +140,48 @@ def preview_ply(src, acescg=True):
                 raise RuntimeError("PLY sin end_header: %s" % src)
             header += line
         props = [l.split()[1:] for l in header.decode("ascii").splitlines() if l.startswith("property")]
-        a = np.fromfile(f, dtype=[(n, types[t]) for t, n in props])
+        return header, np.fromfile(f, dtype=[(n, types[t]) for t, n in props])
+
+
+def to_world(P, R, s, T):
+    """Del espacio de SHARP al mundo nivelado (Axis SHARP_mundo: SRT, rot_order ZXY)."""
+    import numpy as np
+    return (s * P) @ np.asarray(R).T + np.asarray(T)
+
+
+def fit_box(W, cam_pos, k=3.0):
+    """Caja (xmin, ymin, zmin, xmax, ymax, zmax) con los splats a menos de k veces la distancia mediana
+    a la cámara: deja fuera lo que SHARP manda lejos (cielo, luces quemadas)."""
+    import numpy as np
+    d = np.linalg.norm(W - np.asarray(cam_pos), axis=1)
+    Q = W[d < k * np.median(d)]
+    return [round(float(v), 2) for v in np.r_[Q.min(0), Q.max(0)]]
+
+
+def crop_ply(src, dst, box, R, s, T):
+    """Copia de src con solo los splats dentro de box (mundo nivelado, metros). Devuelve (quedan, total)."""
+    import numpy as np
+    header, a = _ply_raw(src)
+    W = to_world(np.stack([a["x"], a["y"], a["z"]], 1).astype(np.float64), R, s, T)
+    keep = np.all((W >= box[:3]) & (W <= box[3:]), 1)
+    if not keep.any():  # un PLY sin splats rompe el GeoReference ("Error translating PLY to USD")
+        raise RuntimeError("La caja quedó vacía: no hay splats dentro.")
+    header = re.sub(rb"element vertex \d+", b"element vertex %d" % keep.sum(), header)
+    with open(dst + ".tmp", "wb") as f:  # a medio escribir no queda con el nombre final
+        f.write(header)
+        a[keep].tofile(f)
+    os.replace(dst + ".tmp", dst)
+    return int(keep.sum()), len(a)
+
+
+def preview_ply(src, acescg=True):
+    """Copia del PLY con el color en Rec.709 de pantalla (gamma 2.4, recortado a 0-1), para ver los splats
+    en el viewer 3D como en el monitor. Solo previs: el color deja de ser lineal. Se crea una vez por PLY."""
+    import numpy as np
+    dst = src[:-4] + "_rec709.ply"
+    if os.path.isfile(dst) and os.path.getmtime(dst) >= os.path.getmtime(src):
+        return dst
+    header, a = _ply_raw(src)
     lin = 0.5 + SH_C0 * np.stack([a["f_dc_%d" % i] for i in range(3)], 1).astype(np.float64)
     if acescg:
         lin = lin @ np.array(ACESCG_TO_REC709).T

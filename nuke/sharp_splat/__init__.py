@@ -1,6 +1,6 @@
 """SHARP Splat para Nuke 17: un cuadro del plate -> Gaussian splats HDR (SHARP-HDR en ComfyUI)."""
 
-__version__ = "0.8.0"
+__version__ = "0.9.0"
 
 
 def register():

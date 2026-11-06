@@ -1,6 +1,8 @@
 # SHARP Splat para Nuke
 
-Convierte un cuadro de un plate en una escena 3D de Gaussian splats, en HDR y en metros, lista para renderizar desde otra cámara en Nuke 17. Usa [SHARP](https://github.com/apple/ml-sharp) en ComfyUI, a través de ComfyUI-SHARP-HDR.
+Convierte un cuadro de un plate en una escena 3D de Gaussian splats, en HDR y en metros, lista para renderizar desde otra cámara en Nuke 17. Usa [SHARP](https://github.com/apple/ml-sharp) en ComfyUI, a través de [ComfyUI-SHARP-HDR](https://github.com/metalrahul/ComfyUI-SHARP-HDR) de metalrahul (ver *Créditos*).
+
+Para un recorrido paso a paso con un plano de ejemplo, mira el [tutorial](TUTORIAL.md).
 
 Sirve para mover un poco la cámara sobre un plano fijo (parallax, pequeños dolly o reencuadres), para tener una referencia 3D del set o para proyectar.
 
@@ -58,6 +60,14 @@ En planos sin piso bajo la cámara (cenitales, primeros planos), la nivelación 
 
 Para corregir a mano usa **girar escena (°)** y **mover escena (m)**, que se suman a la nivelación. En el giro, X corrige el tilt, Z el roll e Y gira la escena sobre el eje vertical (por ejemplo, para alinear una calle con Z). También sirven con **nivelar piso** desmarcado, para orientar todo a mano. Mover estos controles no cambia el render desde la cámara de SHARP, porque la cámara se mueve con la escena.
 
+### Recortar
+
+SHARP a veces manda splats al infinito, sobre todo en luces quemadas (un difusor blanco en el techo) o en el cielo. En la sección **recortar**, marca **recortar**: se borran los splats que quedan fuera de la **caja (m)**. La primera vez la caja se ajusta sola a la escena, con los splats que están a menos de 3 veces la distancia mediana a la cámara. **ajustar a la escena** la vuelve a poner así.
+
+La caja está en metros del mundo nivelado (piso en Y = 0, la cámara mira hacia -Z): mínimo y máximo en X, Y y Z. Si giras o mueves la escena, la caja se queda fija en el mundo y cambia lo que queda dentro. Al lado de la caja aparece cuántos splats quedan.
+
+El recorte escribe una copia del PLY (`..._crop_<código>.ply`, junto al original) y el nodo la usa en vez del original. Cada caja tiene su propia copia: lo que sacas con **Crear** se queda con la que tenía, aunque después cambies la caja. Mientras arrastras la caja, el recorte espera a que la sueltes. Las copias que ya no usa ningún nodo se borran solas.
+
 ### Cards sobre una superficie
 
 En la sección **card sobre una superficie**, aprieta **Nueva card**: se crea afuera un GeoCard pegado a la superficie bajo el **punto**. Con el panel del nodo abierto, arrastra el punto en el viewer (sobre una pared, el piso o un letrero) y la card lo sigue: queda sobre esa superficie y orientada con ella. En paredes, el borde de abajo queda horizontal. Una **grilla** dibujada sobre la salida del nodo muestra dónde queda la card (se apaga con **ver grilla**).
@@ -78,6 +88,15 @@ En **modo**, elige *Aislar objeto (alpha)*: SHARP usa el alpha del plate y solo 
 ### Ajustes de SHARP
 
 Están en tres grupos: *splats*, *malla proxy* y *aislar objeto*. Cada uno tiene una descripción al dejar el mouse encima. Por dentro conservan el nombre de ComfyUI-SHARP-HDR. Después de cambiarlos, aprieta **Generar** otra vez.
+
+## Créditos
+
+Este paquete es solo la parte de Nuke. El trabajo de fondo es de:
+
+- [ComfyUI-SHARP-HDR](https://github.com/metalrahul/ComfyUI-SHARP-HDR), de metalrahul: los splats en HDR, el PLY y la escena para Nuke que este nodo arma por dentro.
+- [ComfyUI-Sharp](https://github.com/PozzettiAndrea/ComfyUI-Sharp), de PozzettiAndrea: SHARP en ComfyUI.
+- [SHARP](https://github.com/apple/ml-sharp), de Apple: el modelo.
+- [ComfyUI-HQ-Image-Save](https://github.com/spacepxl/ComfyUI-HQ-Image-Save), de spacepxl: la lectura del EXR.
 
 ## Dónde quedan los archivos
 

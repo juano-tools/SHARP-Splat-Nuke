@@ -8,8 +8,10 @@ el interior; el piso se nivela solo y la escena queda en metros.
 import base64
 import json
 import os
+import re
 import threading
 import time
+import zlib
 
 import nuke
 
@@ -148,6 +150,16 @@ def _add_knobs(g):
             "sobre el eje vertical (por ejemplo, para alinear una calle con Z).")
     add(nuke.XYZ_Knob("sharp_adj_pos", "mover escena (m)"),
         tip="Se suma a la posición de la escena. Y sube o baja el piso.")
+    section("sharp_grp_crop", "recortar", closed=False)
+    add(nuke.Boolean_Knob("sharp_crop_on", "recortar"),
+        tip="Borra los splats fuera de la caja (por ejemplo, los que SHARP manda al infinito en luces\n"
+            "quemadas o cielo). La primera vez, la caja se ajusta sola a la escena.")
+    add(nuke.Box3_Knob("sharp_crop_box", "caja (m)"),
+        tip="Mínimo y máximo en X, Y, Z, en metros del mundo nivelado (piso en Y=0).")
+    g["sharp_crop_box"].setValue([0] * 6)
+    add(nuke.PyScript_Knob("sharp_crop_fit", "ajustar a la escena", _cmd("fit_crop")),
+        tip="Pone la caja alrededor de los splats que están a menos de 3 veces la distancia mediana a la cámara.")
+    add(nuke.Text_Knob("sharp_crop_info", "", "sin recortar"), newline=False)
     section("sharp_grp_card", "card sobre una superficie", closed=False)
     add(nuke.Text_Knob("sharp_card_help", "",
                        "<span style='color:#aaa'>Aprieta Nueva card y arrastra el punto en el viewer sobre una superficie<br>"
@@ -222,7 +234,10 @@ def knob_changed():
         elif k.name() == "sharp_orient_on" and _job(g).get("ply"):
             orient(g)
         elif k.name() in ("sharp_cam_height", "sharp_adj_rot", "sharp_adj_pos"):
-            apply_orient(g)
+            apply_orient(g, crop=False)
+            _crop_later(g)
+        elif k.name() in ("sharp_crop_on", "sharp_crop_box"):
+            _crop_later(g)
         elif k.name() in CARD_KNOBS and _job(g).get("card"):
             update_card(g)
     except ValueError:
@@ -523,7 +538,7 @@ def orient(g):
     apply_orient(g)
 
 
-def apply_orient(g):
+def apply_orient(g, crop=True):
     """Hilo principal, sin leer el PLY. Axis = piso guardado + escala de la altura + ajuste manual.
     El ajuste se suma a los ángulos: Y gira la escena en el mundo; X y Z corrigen tilt y roll."""
     job = _job(g)
@@ -545,6 +560,94 @@ def apply_orient(g):
     _status(g, "%s | %s" % (job.get("status", ""), note))
     if job.get("card"):
         update_card(g)  # la card viva sigue al mundo
+    if crop:
+        apply_crop(g)  # la caja está en el mundo: si el mundo se mueve, cambia qué queda dentro
+
+
+def _world(g):
+    """(GeoReference, R, escala, T) del mundo nivelado, o None si no hay escena generada."""
+    with g:
+        ax, geo = nuke.toNode("SHARP_mundo"), (nuke.allNodes("GeoReference") or [None])[0]
+    if ax is None or geo is None:
+        return None
+    return geo, core.rot_zxy(*ax["rotate"].value()), ax["uniform_scale"].value(), ax["translate"].value()
+
+
+def fit_crop(g):
+    """Botón ajustar a la escena. La cámara de SHARP está en el origen de su espacio: en el mundo, en T."""
+    job, w = _job(g), _world(g)
+    if not job.get("ply") or w is None:
+        nuke.message("Primero aprieta Generar.")
+        return
+    _, R, s, T = w
+    g["sharp_crop_box"].setValue(core.fit_box(core.to_world(core.read_ply(job["ply"])[0], R, s, T), T))
+    apply_crop(g)
+
+
+_crop_timers = {}  # Group -> Timer pendiente
+
+
+def _crop_later(g, delay=0.4):
+    """Desde knobChanged: arrastrar la caja manda un cambio por paso. Se recorta una vez, al soltar, y fuera
+    del callback (cambiar la geometría ahí da "I'm already executing something else")."""
+    if not nuke.GUI:  # sin ventana no hay bucle de eventos que corra el diferido
+        return apply_crop(g)
+    name = g.fullName()
+    if name in _crop_timers:
+        _crop_timers[name].cancel()
+
+    def run():
+        _crop_timers.pop(name, None)
+        node = nuke.toNode(name)
+        if node is not None:
+            try:
+                apply_crop(node)
+            except Exception as exc:
+                _status(node, "error: %s" % exc)
+
+    t = threading.Timer(delay, lambda: nuke.executeInMainThread(run))
+    _crop_timers[name] = t
+    t.start()
+
+
+def _drop_unused(path):
+    """Borra una copia recortada vieja si ningún GeoReference la usa (las sacadas con Crear la conservan)."""
+    if path and os.path.isfile(path) and not any(
+            n["file_path"].value() == path for n in nuke.allNodes("GeoReference", recurseGroups=True)):
+        try:
+            os.remove(path)
+        except OSError:
+            pass  # abierta por Nuke: queda en output de ComfyUI con el resto de la corrida
+
+
+def apply_crop(g):
+    """Apunta el GeoReference a una copia del PLY con solo lo que está dentro de la caja, o al original.
+    Una copia por caja y mundo: con la ruta nueva Nuke la carga sin reload, y lo sacado con Crear no cambia."""
+    job, w = _job(g), _world(g)
+    if "sharp_crop_on" not in g.knobs() or not job.get("ply") or w is None:
+        return
+    geo, R, s, T = w
+    path = job["ply"]
+    if g["sharp_crop_on"].value():
+        box = g["sharp_crop_box"].value()
+        if not all(box[i + 3] > box[i] for i in range(3)):  # caja sin volumen = sin ajustar todavía
+            return fit_crop(g)
+        key = repr([round(v, 4) for v in list(box) + list(R.ravel()) + [s] + list(T)])
+        path = "%s_crop_%08x.ply" % (job["ply"][:-4], zlib.crc32(key.encode()))
+        if os.path.isfile(path):  # esta misma caja ya se recortó: se reusa
+            with open(path, "rb") as f:
+                kept = int(re.search(rb"element vertex (\d+)", f.read(1024)).group(1))
+            g["sharp_crop_info"].setValue("quedan %d splats" % kept)
+        else:
+            kept, total = core.crop_ply(job["ply"], path, box, R, s, T)
+            g["sharp_crop_info"].setValue("quedan %d de %d splats" % (kept, total))
+    else:
+        g["sharp_crop_info"].setValue("sin recortar")
+    old = geo["file_path"].value()
+    if old != path:
+        geo["file_path"].setValue(path)
+        if old != job["ply"]:
+            _drop_unused(old)
 
 
 def _clone(src, name):
