@@ -27,7 +27,7 @@ Para quitarlo, usa `desinstalar.bat`.
 ## Usar
 
 1. Selecciona el plate y crea el nodo desde **Nodes > 3D > SHARP Splat**. Queda conectado a la entrada `plate`.
-2. Revisa el **focal** y el **filmback** (el ancho del sensor, en mm, que corresponde al cuadro completo). El nodo los llena si vienen en la metadata de cámara del plate. Lo que no viene queda en 0 y lo tienes que escribir. La línea `metadata` dice qué encontró y qué falta. **Si estos dos valores están mal, la escena sale deformada y con la escala equivocada.**
+2. Revisa el **focal** y el **ancho sensor** (el filmback: el ancho, en mm, del área del sensor que corresponde al cuadro completo). El nodo los llena si vienen en la metadata de cámara del plate. Lo que no viene queda en 0 y lo tienes que escribir. La línea `metadata` dice qué encontró y qué falta. **Si estos dos valores están mal, la escena sale deformada y con la escala equivocada.**
 3. Elige el **cuadro** (por defecto, el cuadro en que creaste el nodo) y aprieta **Generar**.
 4. La salida del nodo es el render de los splats. Desde la cámara original tiene que calzar con el plate.
 
@@ -50,19 +50,19 @@ Saca la **Cámara**, duplícala o anímala y conéctala a la entrada `cam`. Mien
 
 Con **nivelar piso** marcado (viene así), el nodo busca el piso bajo la cámara, lo deja horizontal en Y = 0 y pone el origen justo debajo de la cámara. La línea `estado` muestra la altura de la cámara y su inclinación.
 
-SHARP ya entrega metros si el focal y el filmback son los reales. Si conoces la altura real de la cámara, escríbela en **altura cámara (m)** y la escena se escala para que calce. El render desde la cámara original no cambia con ninguna de las dos opciones.
+SHARP ya entrega metros si el focal y el ancho de sensor son los reales. Si conoces la altura real de la cámara, escríbela en **altura cámara (m)** y la escena se escala para que calce. El render desde la cámara original no cambia con ninguna de las dos opciones.
 
 En planos sin piso bajo la cámara (cenitales, primeros planos), la nivelación no lo encuentra y la escena queda como la entrega SHARP.
 
-Para corregir a mano usa **ajuste rotación** y **ajuste posición**, que se suman a la nivelación. En rotación, X corrige el tilt, Z el roll e Y gira la escena sobre el eje vertical (por ejemplo, para alinear una calle con Z). La posición va en metros. También sirven con **nivelar piso** desmarcado, para orientar todo a mano. Mover estos controles no cambia el render desde la cámara de SHARP, porque la cámara se mueve con la escena.
+Para corregir a mano usa **girar escena (°)** y **mover escena (m)**, que se suman a la nivelación. En el giro, X corrige el tilt, Z el roll e Y gira la escena sobre el eje vertical (por ejemplo, para alinear una calle con Z). También sirven con **nivelar piso** desmarcado, para orientar todo a mano. Mover estos controles no cambia el render desde la cámara de SHARP, porque la cámara se mueve con la escena.
 
 ### Aislar un objeto
 
-En **modo**, elige *Aislar objeto (alpha)*: SHARP usa el alpha del plate y solo genera lo que está dentro. Los settings de la sección *aislar objeto* ajustan el borde. Los objetos aislados quedan como cartones delgados si los miras de lado.
+En **modo**, elige *Aislar objeto (alpha)*: SHARP usa el alpha del plate y solo genera lo que está dentro. Los ajustes de la sección *aislar objeto* afinan el borde. Los objetos aislados quedan como cartones delgados si los miras de lado.
 
-### Settings de SHARP
+### Ajustes de SHARP
 
-Son los de ComfyUI-SHARP-HDR, con sus nombres originales. Después de cambiarlos, aprieta **Generar** otra vez.
+Están en tres grupos: *splats*, *malla proxy* y *aislar objeto*. Cada uno tiene una descripción al dejar el mouse encima. Por dentro conservan el nombre de ComfyUI-SHARP-HDR. Después de cambiarlos, aprieta **Generar** otra vez.
 
 ## Dónde quedan los archivos
 

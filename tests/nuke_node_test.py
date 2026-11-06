@@ -17,6 +17,7 @@ gf = os.path.expanduser("~/.nuke/plugins/GenFill/nuke/python")
 if os.path.isdir(gf):
     sys.path.insert(0, gf)
 from sharp_splat import core, node  # noqa: E402
+assert set(node.PARAMS) == {n for n, _ in core.SETTINGS}, "cada ajuste de SHARP necesita nombre y descripción"
 
 plate, first, focal, tmp = sys.argv[1], int(sys.argv[2]), float(sys.argv[3]), sys.argv[4]
 nuke.root()["colorManagement"].setValue("OCIO")

@@ -17,6 +17,35 @@ from . import core
 
 KEEP = ("plate", "cam", "Output1")  # lo único del interior que Generar no borra
 EXPORTS = ["Cámara", "Cámara + splats", "Cámara + splats + proxy", "Escena completa (con SplatRender)"]
+
+# Ajustes de SharpHDR_Predict: nombre visible, descripción y rango (los min/max de SHARP-HDR).
+SECTIONS = {"opacity": "splats", "export_proxy_obj": "malla proxy", core.ISOLATION_FROM: "aislar objeto (solo en ese modo)"}
+PARAMS = {
+    "opacity": ("opacidad", "Multiplica la opacidad de todos los splats. Más alto = superficies más sólidas,\n"
+                "con menos huecos que dejan ver a través.", 0.1, 5),
+    "thickness": ("tamaño", "Multiplica el tamaño de todos los splats. Súbelo un poco si aparecen huecos\n"
+                  "al mover la cámara.", 0.5, 3),
+    "sharpness": ("nitidez", "Enfoque (unsharp mask) que se aplica al color HDR antes de pasarlo a los splats.", 0, 1),
+    "export_proxy_obj": ("crear proxy", "Escribe una malla liviana (.obj) hecha con la profundidad de los splats,\n"
+                         "para proyectar o hacer layout. Se saca con 'Cámara + splats + proxy'.", 0, 1),
+    "proxy_grid_res": ("resolución", "Vértices a lo ancho de la malla proxy.", 32, 512),
+    "alpha_clip": ("umbral alpha", "Borra los splats donde el alpha está bajo este valor.", 0, 0.99),
+    "edge_erode": ("achicar borde (px)", "Achica el matte estos píxeles para que no se cuele el fondo en el borde.", 0, 15),
+    "black_clip": ("quitar negros", "Borra los splats casi negros bajo este valor (halos oscuros o fondo que se cuela).", 0, 0.5),
+    "prune_occluded": ("limpiar por profundidad", "Activa los filtros de profundidad: profundidad del objeto,\n"
+                       "salto en el borde y límite lejano.", 0, 1),
+    "surface_depth_thickness": ("profundidad del objeto", "Conserva los splats hasta esta proporción de profundidad detrás\n"
+                                "de la superficie del frente; borra las capas ocultas de atrás.", 1.01, 3),
+    "far_clip": ("límite lejano", "Borra los splats más lejos que este múltiplo de la profundidad media del objeto.", 1.05, 10),
+    "max_splat_size": ("tamaño máximo", "Borra los splats más grandes que este múltiplo del tamaño medio en pantalla.", 0.2, 10),
+    "depth_edge_inpaint": ("radio del borde (px)", "Radio para estimar la superficie del frente cerca del borde del matte.", 0, 20),
+    "depth_jump_threshold": ("salto en el borde", "Salto de profundidad relativo que, en el borde del matte, se toma como un corte:\n"
+                             "esos splats se borran. También corta caras de la malla proxy.", 0, 1),
+    "max_anisotropy": ("estiramiento máximo", "Limita cuánto se puede alargar un splat. Quita las 'cortinas' estiradas en los bordes.", 1.1, 15),
+    "edge_color_decontaminate": ("limpiar color del borde", "Pasadas de relleno de color en el borde para quitar el color del fondo que se cuela.", 0, 12),
+    "grazing_cos_clip": ("quitar los de canto", "Borra los splats del borde que se ven casi de canto\n"
+                         "(coseno con el rayo de vista bajo este valor).", 0, 0.6),
+}
 _busy = set()  # Groups con una corrida en curso
 
 
@@ -50,51 +79,62 @@ def _add_knobs(g):
         return k
 
     g.addKnob(nuke.Tab_Knob("sharp_tab", "SHARP"))
-    add(nuke.Text_Knob("sharp_status", "estado", "sin generar"))
+    add(nuke.Text_Knob("sharp_status", "estado", "sin generar"),
+        tip="Versión generada, cuánto tardó y el resultado de la nivelación.")
     add(nuke.Int_Knob("sharp_frame", "cuadro"), tip="Cuadro del plate que SHARP convierte en splats.")
     g["sharp_frame"].setValue(nuke.frame())
-    add(nuke.PyScript_Knob("sharp_frame_now", "cuadro actual",
-                           "nuke.thisNode()['sharp_frame'].setValue(nuke.frame())"), newline=False)
+    add(nuke.PyScript_Knob("sharp_frame_now", "usar el actual",
+                           "nuke.thisNode()['sharp_frame'].setValue(nuke.frame())"), newline=False,
+        tip="Pone el cuadro en que está el timeline.")
     add(nuke.Enumeration_Knob("sharp_mode", "modo", core.MODES),
-        tip="Aislar objeto usa el alpha del plate y deja solo lo que está dentro.")
-    for name, label, hi in (("sharp_focal", "focal (mm)", 100), ("sharp_filmback", "filmback ancho (mm)", 50)):
-        k = add(nuke.Double_Knob(name, label))
-        k.setRange(0, hi)
-    add(nuke.Text_Knob("sharp_meta", "metadata", "-"))
+        tip="Escena completa: todo el cuadro.\n"
+            "Aislar objeto: solo lo que está dentro del alpha del plate (los ajustes de 'aislar objeto' afinan el borde).")
+    k = add(nuke.Double_Knob("sharp_focal", "focal (mm)"),
+            tip="Focal del lente con que se filmó. Junto con el ancho del sensor define el campo de visión:\n"
+                "si está mal, la escena sale deformada y con la escala equivocada.")
+    k.setRange(0, 100)
+    k = add(nuke.Double_Knob("sharp_filmback", "ancho sensor (mm)"),
+            tip="Ancho del sensor que corresponde al cuadro completo de la imagen (filmback).\n"
+                "Si se grabó con recorte, es el ancho del área grabada, no el del sensor entero.")
+    k.setRange(0, 50)
+    add(nuke.Text_Knob("sharp_meta", "metadata", "-"),
+        tip="Qué encontró en la metadata de cámara del plate y qué falta escribir a mano.")
     add(nuke.PyScript_Knob("sharp_read_meta", "Leer metadata", _cmd("fill_lens_force")),
-        tip="Llena focal y filmback con lo que traiga la metadata de cámara del plate.")
+        tip="Vuelve a llenar focal y ancho de sensor con la metadata del plate (pisa lo escrito).")
     add(nuke.Text_Knob("sharp_div1", ""))
     add(nuke.PyScript_Knob("sharp_generate", "<b>Generar</b>", _cmd("generate")),
-        tip="Corre SHARP en ComfyUI (vía GenFill) y rearma la escena. Unos 5 s; la primera vez, más.")
+        tip="Corre SHARP en ComfyUI (vía GenFill) y rearma la escena. Unos 5 s; la primera vez, más.\n"
+            "Después de cambiar cualquier ajuste de SHARP hay que volver a Generar.")
 
-    add(nuke.Text_Knob("sharp_div_set", "settings de SHARP"))
     for name, default in core.SETTINGS:
-        if name == core.ISOLATION_FROM:
-            add(nuke.Text_Knob("sharp_div_iso", "aislar objeto"))
+        if name in SECTIONS:
+            add(nuke.Text_Knob("sharp_div_" + name, SECTIONS[name]))
+        label, tip, lo, hi = PARAMS[name]
         cls = nuke.Boolean_Knob if isinstance(default, bool) else nuke.Int_Knob if isinstance(default, int) else nuke.Double_Knob
-        k = add(cls("sharp_" + name, name))
+        k = add(cls("sharp_" + name, label), tip=tip)  # el nombre interno sigue siendo el de SHARP-HDR
         if cls is nuke.Double_Knob:
-            k.setRange(0, max(1.0, 2 * default))  # el slider de fabrica es 0-1
+            k.setRange(lo, hi)
         k.setValue(default)
 
     add(nuke.Text_Knob("sharp_div_scene", "escena"))
     add(nuke.Boolean_Knob("sharp_orient_on", "nivelar piso"),
-        tip="Busca el piso bajo la cámara y lo deja en Y=0, con el origen bajo la cámara.\n"
+        tip="Busca el piso bajo la cámara y lo deja horizontal en Y=0, con el origen bajo la cámara.\n"
             "El render desde la cámara de SHARP no cambia.")
     g["sharp_orient_on"].setValue(True)
     k = add(nuke.Double_Knob("sharp_cam_height", "altura cámara (m)"),
             tip="Escala la escena para que la cámara quede a esta altura del piso.\n"
-                "0 = la escala de SHARP, que ya es métrica si el focal y el filmback son los reales.")
+                "0 = la escala de SHARP, que ya es métrica si el focal y el ancho de sensor son los reales.")
     k.setRange(0, 3)
-    add(nuke.XYZ_Knob("sharp_adj_rot", "ajuste rotación"),
-        tip="Grados que se suman a la nivelación: X corrige el tilt, Z el roll e Y gira la escena\n"
+    add(nuke.XYZ_Knob("sharp_adj_rot", "girar escena (°)"),
+        tip="Se suma a la nivelación: X corrige el tilt, Z el roll e Y gira la escena\n"
             "sobre el eje vertical (por ejemplo, para alinear una calle con Z).")
-    add(nuke.XYZ_Knob("sharp_adj_pos", "ajuste posición"),
-        tip="Metros que se suman a la posición de la escena (Y sube o baja el piso).")
+    add(nuke.XYZ_Knob("sharp_adj_pos", "mover escena (m)"),
+        tip="Se suma a la posición de la escena. Y sube o baja el piso.")
     add(nuke.Enumeration_Knob("sharp_export_what", "sacar", EXPORTS),
         tip="Crea afuera copias en el mundo nivelado, con los valores fijos, para manipularlas.\n"
             "La cámara se puede animar y conectar a la entrada 'cam' para ver la escena desde otro lado.")
-    add(nuke.PyScript_Knob("sharp_export", "Crear", _cmd("export")), newline=False)
+    add(nuke.PyScript_Knob("sharp_export", "Crear", _cmd("export")), newline=False,
+        tip="Crea lo elegido en 'sacar', a la derecha del nodo.")
     hidden = nuke.String_Knob("sharp_job", "")
     hidden.setFlag(nuke.INVISIBLE)
     g.addKnob(hidden)
