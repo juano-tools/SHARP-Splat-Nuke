@@ -13,7 +13,9 @@ import time
 
 import nuke
 
-from . import core
+from . import __version__, core
+
+GREEN, AMBER = "#7fd1a8", "#f2a65a"  # los colores del ícono
 
 KEEP = ("plate", "cam", "Output1")  # lo único del interior que Generar no borra
 EXPORTS = ["Cámara", "Cámara + splats", "Cámara + splats + proxy", "Escena completa (con SplatRender)"]
@@ -64,7 +66,7 @@ def _save_job(g, job):
 
 
 def _status(g, text):
-    g["sharp_status"].setValue(text)
+    g["sharp_status"].setValue("<span style='color:%s'>%s</span>" % (GREEN, text))
 
 
 # --- creacion ---------------------------------------------------------------------------------
@@ -79,6 +81,13 @@ def _add_knobs(g):
         return k
 
     g.addKnob(nuke.Tab_Knob("sharp_tab", "SHARP"))
+    add(nuke.Text_Knob("sharp_header", "",
+                       "<span style='font-size:15pt; color:%s'><b>SHARP</b></span>"
+                       "<span style='font-size:15pt; color:%s'> Splat</span>"
+                       "<span style='color:#888'>&nbsp;&nbsp;v%s</span><br>"
+                       "<span style='color:#aaa'>un cuadro del plate &rarr; Gaussian splats HDR en metros</span>"
+                       % (GREEN, AMBER, __version__)))
+    add(nuke.Text_Knob("sharp_div0", ""))
     add(nuke.Text_Knob("sharp_status", "estado", "sin generar"),
         tip="Versión generada, cuánto tardó y el resultado de la nivelación.")
     add(nuke.Int_Knob("sharp_frame", "cuadro"), tip="Cuadro del plate que SHARP convierte en splats.")
@@ -102,13 +111,21 @@ def _add_knobs(g):
     add(nuke.PyScript_Knob("sharp_read_meta", "Leer metadata", _cmd("fill_lens_force")),
         tip="Vuelve a llenar focal y ancho de sensor con la metadata del plate (pisa lo escrito).")
     add(nuke.Text_Knob("sharp_div1", ""))
-    add(nuke.PyScript_Knob("sharp_generate", "<b>Generar</b>", _cmd("generate")),
+    add(nuke.PyScript_Knob("sharp_generate", "<span style='color:%s'><b>&#9654; Generar</b></span>" % GREEN, _cmd("generate")),
         tip="Corre SHARP en ComfyUI (vía GenFill) y rearma la escena. Unos 5 s; la primera vez, más.\n"
             "Después de cambiar cualquier ajuste de SHARP hay que volver a Generar.")
 
+    def section(name, label, closed=True):  # grupo plegable; cierra el anterior si hay uno abierto
+        if section.open:
+            g.addKnob(nuke.Tab_Knob(section.open + "_end", None, nuke.TABENDGROUP))
+        section.open = name
+        if name:
+            g.addKnob(nuke.Tab_Knob(name, label, nuke.TABBEGINCLOSEDGROUP if closed else nuke.TABBEGINGROUP))
+    section.open = None
+
     for name, default in core.SETTINGS:
         if name in SECTIONS:
-            add(nuke.Text_Knob("sharp_div_" + name, SECTIONS[name]))
+            section("sharp_grp_" + name, SECTIONS[name])
         label, tip, lo, hi = PARAMS[name]
         cls = nuke.Boolean_Knob if isinstance(default, bool) else nuke.Int_Knob if isinstance(default, int) else nuke.Double_Knob
         k = add(cls("sharp_" + name, label), tip=tip)  # el nombre interno sigue siendo el de SHARP-HDR
@@ -116,7 +133,7 @@ def _add_knobs(g):
             k.setRange(lo, hi)
         k.setValue(default)
 
-    add(nuke.Text_Knob("sharp_div_scene", "escena"))
+    section("sharp_grp_scene", "escena", closed=False)
     add(nuke.Boolean_Knob("sharp_orient_on", "nivelar piso"),
         tip="Busca el piso bajo la cámara y lo deja horizontal en Y=0, con el origen bajo la cámara.\n"
             "El render desde la cámara de SHARP no cambia.")
@@ -130,10 +147,11 @@ def _add_knobs(g):
             "sobre el eje vertical (por ejemplo, para alinear una calle con Z).")
     add(nuke.XYZ_Knob("sharp_adj_pos", "mover escena (m)"),
         tip="Se suma a la posición de la escena. Y sube o baja el piso.")
+    section(None, None)
     add(nuke.Enumeration_Knob("sharp_export_what", "sacar", EXPORTS),
         tip="Crea afuera copias en el mundo nivelado, con los valores fijos, para manipularlas.\n"
             "La cámara se puede animar y conectar a la entrada 'cam' para ver la escena desde otro lado.")
-    add(nuke.PyScript_Knob("sharp_export", "Crear", _cmd("export")), newline=False,
+    add(nuke.PyScript_Knob("sharp_export", "<span style='color:%s'><b>Crear</b></span>" % AMBER, _cmd("export")), newline=False,
         tip="Crea lo elegido en 'sacar', a la derecha del nodo.")
     hidden = nuke.String_Knob("sharp_job", "")
     hidden.setFlag(nuke.INVISIBLE)
@@ -151,7 +169,10 @@ def create():
         nuke.nodes.Output(name="Output1")
     _add_knobs(g)
     g["knobChanged"].setValue("import sharp_splat.node as n; n.knob_changed()")
-    g["tile_color"].setValue(0x3A5A40FF)
+    g["tile_color"].setValue(0x2F6F5FFF)
+    g["icon"].setValue("sharp_splat.png")
+    g["label"].setValue("cuadro [value sharp_frame]")
+    g["note_font"].setValue("Verdana Bold")
     if sel:
         g.setInput(0, sel[-1])
         g.setXYpos(sel[-1].xpos(), sel[-1].ypos() + 120)
