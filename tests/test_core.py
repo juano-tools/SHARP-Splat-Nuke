@@ -16,21 +16,21 @@ def test_floor_orient():
     a, g = np.radians(rx), np.radians(rz)
     Rx = np.array([[1, 0, 0], [0, np.cos(a), -np.sin(a)], [0, np.sin(a), np.cos(a)]])
     Rz = np.array([[np.cos(g), -np.sin(g), 0], [np.sin(g), np.cos(g), 0], [0, 0, 1]])
-    M = Rx @ Rz  # camara -> mundo
+    M = Rx @ Rz  # cámara -> mundo
     floor = np.c_[rng.uniform(-5, 5, 20000), np.full(20000, -h), rng.uniform(-30, -2, 20000)]
     wall = np.c_[np.full(8000, 3.0), rng.uniform(-h, 4, 8000), rng.uniform(-30, -2, 8000)]
     W = np.r_[floor, wall] + rng.normal(0, 0.01, (28000, 3))
-    got = core.floor_orient(W @ M, np.ones(len(W)))  # W @ M = mundo -> camara (M ortogonal)
+    got = core.floor_orient(W @ M, np.ones(len(W)))  # W @ M = mundo -> cámara (M ortogonal)
     assert np.allclose(got, (rx, rz, h), atol=0.2), got  # grados y metros, con ruido de 1 cm
 
 
 def test_floor_missing():
-    P = np.c_[np.zeros(500), np.full(500, 2.0), np.full(500, -5.0)]  # todo sobre la camara
+    P = np.c_[np.zeros(500), np.full(500, 2.0), np.full(500, -5.0)]  # todo sobre la cámara
     try:
         core.floor_orient(P, np.ones(500))
     except RuntimeError:
         return
-    raise AssertionError("tenia que fallar sin piso")
+    raise AssertionError("tenía que fallar sin piso")
 
 
 def test_lens_from_metadata():

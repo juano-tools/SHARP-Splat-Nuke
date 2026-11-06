@@ -1,6 +1,6 @@
 """Nodo SHARP Splat (Group): un cuadro del plate -> Gaussian splats HDR con SHARP-HDR -> SplatRender.
 
-Entradas: plate (la imagen) y cam (opcional: una camara propia para vistas nuevas, en el mundo
+Entradas: plate (la imagen) y cam (opcional: una cámara propia para vistas nuevas, en el mundo
 nivelado). Salida: el render de los splats. "Generar" corre SHARP en el cuadro elegido y rearma
 el interior; el piso se nivela solo y la escena queda en metros.
 """
@@ -15,7 +15,8 @@ import nuke
 
 from . import core
 
-KEEP = ("plate", "cam", "Output1")  # lo unico del interior que Generar no borra
+KEEP = ("plate", "cam", "Output1")  # lo único del interior que Generar no borra
+EXPORTS = ["Cámara", "Cámara + splats", "Cámara + splats + proxy", "Escena completa (con SplatRender)"]
 _busy = set()  # Groups con una corrida en curso
 
 
@@ -55,16 +56,16 @@ def _add_knobs(g):
     add(nuke.PyScript_Knob("sharp_frame_now", "cuadro actual",
                            "nuke.thisNode()['sharp_frame'].setValue(nuke.frame())"), newline=False)
     add(nuke.Enumeration_Knob("sharp_mode", "modo", core.MODES),
-        tip="Aislar objeto usa el alpha del plate y deja solo lo que esta dentro.")
+        tip="Aislar objeto usa el alpha del plate y deja solo lo que está dentro.")
     for name, label, hi in (("sharp_focal", "focal (mm)", 100), ("sharp_filmback", "filmback ancho (mm)", 50)):
         k = add(nuke.Double_Knob(name, label))
         k.setRange(0, hi)
     add(nuke.Text_Knob("sharp_meta", "metadata", "-"))
     add(nuke.PyScript_Knob("sharp_read_meta", "Leer metadata", _cmd("fill_lens_force")),
-        tip="Llena focal y filmback con lo que traiga la metadata de camara del plate.")
+        tip="Llena focal y filmback con lo que traiga la metadata de cámara del plate.")
     add(nuke.Text_Knob("sharp_div1", ""))
     add(nuke.PyScript_Knob("sharp_generate", "<b>Generar</b>", _cmd("generate")),
-        tip="Corre SHARP en ComfyUI (via GenFill) y rearma la escena. Unos 5 s; la primera vez, mas.")
+        tip="Corre SHARP en ComfyUI (vía GenFill) y rearma la escena. Unos 5 s; la primera vez, más.")
 
     add(nuke.Text_Knob("sharp_div_set", "settings de SHARP"))
     for name, default in core.SETTINGS:
@@ -78,16 +79,17 @@ def _add_knobs(g):
 
     add(nuke.Text_Knob("sharp_div_scene", "escena"))
     add(nuke.Boolean_Knob("sharp_orient_on", "nivelar piso"),
-        tip="Busca el piso bajo la camara y lo deja en Y=0, con el origen bajo la camara.\n"
-            "El render desde la camara de SHARP no cambia.")
+        tip="Busca el piso bajo la cámara y lo deja en Y=0, con el origen bajo la cámara.\n"
+            "El render desde la cámara de SHARP no cambia.")
     g["sharp_orient_on"].setValue(True)
-    k = add(nuke.Double_Knob("sharp_cam_height", "altura camara (m)"),
-            tip="Escala la escena para que la camara quede a esta altura del piso.\n"
-                "0 = la escala de SHARP, que ya es metrica si el focal y el filmback son los reales.")
+    k = add(nuke.Double_Knob("sharp_cam_height", "altura cámara (m)"),
+            tip="Escala la escena para que la cámara quede a esta altura del piso.\n"
+                "0 = la escala de SHARP, que ya es métrica si el focal y el filmback son los reales.")
     k.setRange(0, 3)
-    add(nuke.PyScript_Knob("sharp_export_cam", "Sacar camara", _cmd("export_camera")),
-        tip="Crea afuera una camara igual a la de SHARP, en el mundo nivelado.\n"
-            "Animala (o una copia) y conectala a la entrada 'cam' para ver la escena desde otro lado.")
+    add(nuke.Enumeration_Knob("sharp_export_what", "sacar", EXPORTS),
+        tip="Crea afuera copias en el mundo nivelado, con los valores fijos, para manipularlas.\n"
+            "La cámara se puede animar y conectar a la entrada 'cam' para ver la escena desde otro lado.")
+    add(nuke.PyScript_Knob("sharp_export", "Crear", _cmd("export")), newline=False)
     hidden = nuke.String_Knob("sharp_job", "")
     hidden.setFlag(nuke.INVISIBLE)
     g.addKnob(hidden)
@@ -175,9 +177,9 @@ def _export_frame(src, frame, folder):
 
 
 def generate(g):
-    """Hilo principal (boton). Exporta el cuadro, corre SHARP en otro hilo y rearma el interior."""
+    """Hilo principal (botón). Exporta el cuadro, corre SHARP en otro hilo y rearma el interior."""
     if g.name() in _busy:
-        nuke.message("%s ya esta generando." % g.name())
+        nuke.message("%s ya está generando." % g.name())
         return
     src = g.input(0)
     if src is None:
@@ -227,8 +229,8 @@ def generate(g):
 
 
 def _fail(g, version, msg):
-    _status(g, "v%03d fallo" % version)
-    nuke.message("SHARP Splat fallo:\n%s" % msg)
+    _status(g, "v%03d falló" % version)
+    nuke.message("SHARP Splat falló:\n%s" % msg)
 
 
 def _link(node, ax):
@@ -286,7 +288,7 @@ def _build(g, nk, job):
 
 
 def _wire_cam(g):
-    """Con algo en la entrada 'cam' el SplatRender usa esa camara; si no, la de SHARP."""
+    """Con algo en la entrada 'cam' el SplatRender usa esa cámara; si no, la de SHARP."""
     job = _job(g)
     with g:
         sr, own = nuke.toNode("SplatRender"), nuke.toNode(job.get("cam", ""))
@@ -297,8 +299,8 @@ def _wire_cam(g):
 # --- escena -----------------------------------------------------------------------------------
 
 def orient(g):
-    """Hilo principal. Nivela el piso y aplica la altura de camara (escala uniforme desde la camara,
-    asi que el render desde la camara de SHARP no cambia)."""
+    """Hilo principal. Nivela el piso y aplica la altura de cámara (escala uniforme desde la cámara,
+    así que el render desde la cámara de SHARP no cambia)."""
     job = _job(g)
     with g:
         ax = nuke.toNode("SHARP_mundo")
@@ -314,29 +316,87 @@ def orient(g):
         else:
             height = g["sharp_cam_height"].value()
             s = height / h if height > 0 else 1.0
-            note = "camara a %.2f m del piso, tilt %.1f, roll %.1f" % (h * s, rx, rz)
+            note = "cámara a %.2f m del piso, tilt %.1f, roll %.1f" % (h * s, rx, rz)
     ax["rotate"].setValue([rx, 0, rz])
     ax["uniform_scale"].setValue(s)
     ax["translate"].setValue([0, h * s, 0])
     _status(g, "%s | %s" % (job.get("status", ""), note))
 
 
-def export_camera(g):
-    """Camara afuera, igual a la de SHARP en el mundo nivelado (sin la escala, que no cambia la imagen)."""
+def _clone(src, name):
+    """Copia afuera (contexto actual) con los knobs no default de src, sin entradas."""
+    n = getattr(nuke.nodes, src.Class())()
+    script = src.writeKnobs(nuke.WRITE_NON_DEFAULT_ONLY | nuke.TO_SCRIPT)
+    n.readKnobs("\n".join(l for l in script.split("\n") if not l.startswith(("name ", "xpos ", "ypos ", "selected "))))
+    n.setName(name, uncollide=True)
+    return n
+
+
+def _bake(node, ax, scale=True):
+    """Transform fijo igual al del Axis SHARP_mundo (rot_order ZXY, SRT)."""
+    node["rot_order"].setValue("ZXY")
+    node["xform_order"].setValue("SRT")
+    node["rotate"].setValue(ax["rotate"].value())
+    node["translate"].setValue(ax["translate"].value())
+    if scale:
+        node["uniform_scale"].setValue(ax["uniform_scale"].value())
+
+
+def export(g, what=None):
+    """Boton Crear. Saca afuera lo elegido en 'sacar', en el mundo nivelado y con valores fijos.
+    La cámara va sin la escala del mundo: escalar una cámara no cambia su imagen."""
+    what = what or g["sharp_export_what"].value()
     job = _job(g)
     with g:
         cam, ax = nuke.toNode(job.get("cam", "")), nuke.toNode("SHARP_mundo")
-    if cam is None or ax is None:
+        geo = (nuke.allNodes("GeoReference") or [None])[0]
+        proxy = (nuke.allNodes("ReadGeo2") or [None])[0]
+    if cam is None or ax is None or geo is None:
         nuke.message("Primero aprieta Generar.")
-        return
+        return []
+    full = what.startswith("Escena")
+    base = g.name()
+    made = []
     with nuke.root():
-        c = nuke.nodes.Camera3()
-        c.setName("%s_cam1" % g.name(), uncollide=True)
-        for k in ("focal", "haperture", "vaperture", "near", "far", "win_translate", "win_scale"):
-            c[k].fromScript(cam[k].toScript())
-        c["rot_order"].setValue("ZXY")
-        c["rotate"].setValue(ax["rotate"].value())
-        c["translate"].setValue(ax["translate"].value())
-        c["label"].setValue("camara de %s (mundo)" % g.name())
-        c.setXYpos(g.xpos() + 150, g.ypos() - 80)
-    return c
+        c = _clone(cam, base + "_cam1")
+        _bake(c, ax, scale=False)
+        c["label"].setValue("cámara de %s" % base)
+        made.append(c)
+        gt = None
+        if "splats" in what or full:
+            gr = _clone(geo, base + "_splats1")
+            gt = nuke.nodes.GeoTransform()
+            gt.setName(base + "_splats_mundo1", uncollide=True)
+            gt.setInput(0, gr)
+            _bake(gt, ax)
+            made += [gr, gt]
+        if ("proxy" in what or full) and proxy is not None:
+            rg = _clone(proxy, base + "_proxy1")
+            tg = nuke.nodes.TransformGeo()
+            tg.setName(base + "_proxy_mundo1", uncollide=True)
+            tg.setInput(0, rg)
+            _bake(tg, ax)
+            made += [rg, tg]
+        if full and g.input(0) is not None:
+            hold = nuke.nodes.FrameHold(first_frame=job["frame"])
+            hold.setInput(0, g.input(0))
+            bg = nuke.nodes.Multiply(channels="rgba", value=0, label="negro, formato del plate")
+            bg.setInput(0, hold)
+            sr = nuke.nodes.SplatRender()
+            sr.setName(base + "_SplatRender1", uncollide=True)
+            sr.setInput(0, bg)
+            sr.setInput(1, c)
+            sr.setInput(2, gt)
+            made += [hold, bg, sr]
+        # en columnas a la derecha del grupo, cada nodo bajo su entrada
+        x0, y0 = g.xpos() + 200, g.ypos() - 150
+        for i, n in enumerate(made):
+            up = n.input(0) if n.inputs() and n.input(0) in made else None
+            n.setXYpos(up.xpos() if up else x0 + 120 * i, up.ypos() + 70 if up else y0)
+        if full:
+            sr.setXYpos(gt.xpos(), gt.ypos() + 120)
+        for n in nuke.selectedNodes():
+            n.setSelected(False)
+        for n in made:
+            n.setSelected(True)
+    return made

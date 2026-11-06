@@ -2,7 +2,7 @@
 
     Nuke17.1.exe -i -t --nukex tests/nuke_node_test.py <plate.####.exr> <primer cuadro> <focal> <carpeta temporal>
 
-Hace a mano lo que hace el boton Generar (sin hilos: en -t no hay bucle de eventos).
+Hace a mano lo que hace el botón Generar (sin hilos: en -t no hay bucle de eventos).
 """
 
 import os
@@ -43,7 +43,7 @@ paths = core.generate(exr, False, core.equiv_focal(focal, fb, read.width(), read
 print("RESULT SHARP %.1f s" % (time.time() - t0))
 node._build(g, paths["nk"], dict(version=1, frame=first, exr=exr, ply=paths["ply"], status="v001"))
 print("RESULT status:", g["sharp_status"].value())
-assert "camara a" in g["sharp_status"].value(), "tenia que nivelar el piso"
+assert "cámara a" in g["sharp_status"].value(), "tenía que nivelar el piso"
 
 pts = [(1920, 1080), (600, 700), (3000, 400), (1000, 1800)]
 px = lambda n: [round(n.sample("rgba.red", x, y), 5) for x, y in pts]
@@ -56,17 +56,24 @@ node.orient(g)
 assert px(g) == ref, ("la escala cambio el render", px(g), ref)
 print("RESULT altura 1.7:", g["sharp_status"].value())
 
-cam = node.export_camera(g)
+made = node.export(g, node.EXPORTS[-1])  # escena completa afuera: su SplatRender tiene que dar lo mismo
+sr_out = next(n for n in made if n.Class() == "SplatRender")
+diff = max(abs(a - b) for a, b in zip(px(sr_out), ref))
+print("RESULT escena afuera:", [n.Class() for n in made], "dif max", diff)
+assert diff < 1e-3 and any(n.Class() == "ReadGeo2" for n in made), "la escena sacada tiene que dar el mismo render"
+for n in made:
+    nuke.delete(n)
+cam = node.export(g, node.EXPORTS[0])[0]  # solo la cámara
 g.setInput(1, cam)
 node._wire_cam(g)
 with g:
     assert nuke.toNode("SplatRender").input(1).name() == "cam"
 diff = max(abs(a - b) for a, b in zip(px(g), ref))
-print("RESULT camara afuera, dif max", diff)
-assert diff < 1e-3, "la camara sacada tiene que dar el mismo render"
+print("RESULT cámara afuera, dif max", diff)
+assert diff < 1e-3, "la cámara sacada tiene que dar el mismo render"
 
 cam["translate"].setValue(cam["translate"].value(0) + 0.3, 0)  # vista nueva
-print("RESULT camara movida 0.3 m:", px(g))
+print("RESULT cámara movida 0.3 m:", px(g))
 
 name = g.name()
 nuke.scriptSaveAs(os.path.join(tmp, "sharp_test.nk").replace("\\", "/"), overwrite=1)  # en -t, scriptSave() no escribe el grafo

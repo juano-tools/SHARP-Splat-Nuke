@@ -1,6 +1,6 @@
 """Lo que no depende de Nuke: lente desde metadata, workflow de ComfyUI, lectura del PLY y piso.
 
-Convenciones de SHARP-HDR (flip_for_nuke): camara en el origen mirando a -Z, Y arriba, metros.
+Convenciones de SHARP-HDR (flip_for_nuke): cámara en el origen mirando a -Z, Y arriba, metros.
 """
 
 import os
@@ -29,18 +29,18 @@ def equiv_focal(focal, filmback, width, height):
 
 
 def _mm(v):
-    """Primer numero del valor de metadata, en mm. Sony (RDD 18) guarda micras: > 1000 se divide."""
+    """Primer número del valor de metadata, en mm. Sony (RDD 18) guarda micras: > 1000 se divide."""
     m = re.search(r"-?\d+(?:\.\d+)?", str(v))
     x = float(m.group()) if m else 0.0
     return x / 1000.0 if x > 1000 else x
 
 
 def lens_from_metadata(md, width, height):
-    """(focal_mm o None, filmback_mm o None, nota) desde la metadata de camara del plate.
-    Asume que el cuadro completo es el area de sensor grabada; avisa si el aspecto no calza."""
+    """(focal_mm o None, filmback_mm o None, nota) desde la metadata de cámara del plate.
+    Asume que el cuadro completo es el área de sensor grabada; avisa si el aspecto no calza."""
     def pick(pattern, avoid=r"$^"):
         keys = sorted((k for k in md if re.search(pattern, k, re.I) and not re.search(avoid, k, re.I)),
-                      key=lambda k: not re.search(r"effective|active", k, re.I))  # primero el area efectiva
+                      key=lambda k: not re.search(r"effective|active", k, re.I))  # primero el área efectiva
         for k in keys:
             if _mm(md[k]) > 0:
                 return _mm(md[k]), k
@@ -65,7 +65,7 @@ def comfy():
     try:
         from genfill.backends import comfyui
     except ImportError:
-        raise RuntimeError("SHARP Splat usa el cliente de ComfyUI de GenFill, y GenFill no esta instalado.")
+        raise RuntimeError("SHARP Splat usa el cliente de ComfyUI de GenFill, y GenFill no está instalado.")
     return comfyui
 
 
@@ -103,7 +103,7 @@ def generate(exr, isolation, focal, filmback, prefix, colorspace, opts, progress
                 paths[f.rsplit(".", 1)[-1].lower()] = f.replace("\\", "/")
     if "nk" in paths and "ply" in paths:
         return paths
-    raise RuntimeError("SHARP-HDR no devolvio el .nk o el .ply (revisa la consola de ComfyUI).")
+    raise RuntimeError("SHARP-HDR no devolvió el .nk o el .ply (revisa la consola de ComfyUI).")
 
 
 # --- piso -------------------------------------------------------------------------------------
@@ -125,14 +125,14 @@ def read_ply(path):
 
 
 def floor_orient(P, opacity, iters=1500, seed=0):
-    """Piso por RANSAC en los splats bajo la camara.
-    Devuelve (rx, rz, altura) de un Axis ZXY/SRT que deja ese piso en Y=0, con el origen bajo la camara."""
+    """Piso por RANSAC en los splats bajo la cámara.
+    Devuelve (rx, rz, altura) de un Axis ZXY/SRT que deja ese piso en Y=0, con el origen bajo la cámara."""
     import numpy as np
     d = -P[:, 2]
-    # shortcut: busca el piso bajo la camara (Y < -0.5); en planos cenitales no hay piso asi y falla
+    # shortcut: busca el piso bajo la cámara (Y < -0.5); en planos cenitales no hay piso así y falla
     Q = P[(opacity > 0) & (P[:, 1] < -0.5) & (d > 0) & (d < 40)]  # opacity > 0 = alpha > 0.5
     if len(Q) < 100:
-        raise RuntimeError("No encontre piso bajo la camara.")
+        raise RuntimeError("No encontré piso bajo la cámara.")
     rng = np.random.default_rng(seed)
     S = Q[rng.choice(len(Q), min(len(Q), 50000), replace=False)]
     tol = lambda X: 0.02 * np.maximum(-X[:, 2], 1)  # el error de depth crece con la distancia
@@ -150,7 +150,7 @@ def floor_orient(P, opacity, iters=1500, seed=0):
         if k > best:
             best, plane = k, (n, a)
     if plane is None:
-        raise RuntimeError("No encontre piso bajo la camara.")
+        raise RuntimeError("No encontré piso bajo la cámara.")
     n, a = plane
     inl = Q[np.abs((Q - a) @ n) < tol(Q)]
     c = inl.mean(0)

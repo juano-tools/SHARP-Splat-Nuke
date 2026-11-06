@@ -31,9 +31,20 @@ Para quitarlo, usa `desinstalar.bat`.
 3. Elige el **cuadro** (por defecto, el cuadro en que creaste el nodo) y aprieta **Generar**.
 4. La salida del nodo es el render de los splats. Desde la cámara original tiene que calzar con el plate.
 
+### Sacar la escena del nodo
+
+En **sacar**, elige qué quieres y aprieta **Crear**, como en el Export del CameraTracker:
+
+- **Cámara**
+- **Cámara + splats**: un GeoReference con el PLY y un GeoTransform.
+- **Cámara + splats + proxy**: además, la malla proxy (ReadGeo y TransformGeo).
+- **Escena completa (con SplatRender)**: todo lo anterior, ya conectado a un SplatRender propio.
+
+Lo que sale queda en el mundo nivelado, con valores fijos y sin enlaces al nodo, así que lo puedes mover, combinar o borrar sin tocar el nodo.
+
 ### Ver desde otra cámara
 
-Aprieta **Sacar cámara**: se crea afuera una cámara igual a la de SHARP. Duplícala o anímala y conéctala a la entrada `cam`. Mientras `cam` tenga algo conectado, el nodo renderiza desde esa cámara. Los movimientos chicos se ven bien; si la cámara se aleja mucho, aparece lo que el plate nunca mostró (estirado o vacío).
+Saca la **Cámara**, duplícala o anímala y conéctala a la entrada `cam`. Mientras `cam` tenga algo conectado, el nodo renderiza desde esa cámara. Los movimientos chicos se ven bien; si la cámara se aleja mucho, aparece lo que el plate nunca mostró (estirado o vacío).
 
 ### Escena nivelada y en metros
 
