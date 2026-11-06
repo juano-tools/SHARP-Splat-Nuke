@@ -86,6 +86,11 @@ def _add_knobs(g):
             tip="Escala la escena para que la cámara quede a esta altura del piso.\n"
                 "0 = la escala de SHARP, que ya es métrica si el focal y el filmback son los reales.")
     k.setRange(0, 3)
+    add(nuke.XYZ_Knob("sharp_adj_rot", "ajuste rotación"),
+        tip="Grados que se suman a la nivelación: X corrige el tilt, Z el roll e Y gira la escena\n"
+            "sobre el eje vertical (por ejemplo, para alinear una calle con Z).")
+    add(nuke.XYZ_Knob("sharp_adj_pos", "ajuste posición"),
+        tip="Metros que se suman a la posición de la escena (Y sube o baja el piso).")
     add(nuke.Enumeration_Knob("sharp_export_what", "sacar", EXPORTS),
         tip="Crea afuera copias en el mundo nivelado, con los valores fijos, para manipularlas.\n"
             "La cámara se puede animar y conectar a la entrada 'cam' para ver la escena desde otro lado.")
@@ -124,8 +129,10 @@ def knob_changed():
         if k.name() == "inputChange":
             _wire_cam(g)
             fill_lens(g)
-        elif k.name() in ("sharp_orient_on", "sharp_cam_height") and _job(g).get("ply"):
+        elif k.name() == "sharp_orient_on" and _job(g).get("ply"):
             orient(g)
+        elif k.name() in ("sharp_cam_height", "sharp_adj_rot", "sharp_adj_pos"):
+            apply_orient(g)
     except ValueError:
         pass  # llega con el nodo muriendo al cerrar el script
     except Exception as exc:
@@ -299,27 +306,37 @@ def _wire_cam(g):
 # --- escena -----------------------------------------------------------------------------------
 
 def orient(g):
-    """Hilo principal. Nivela el piso y aplica la altura de cámara (escala uniforme desde la cámara,
-    así que el render desde la cámara de SHARP no cambia)."""
+    """Hilo principal. Busca el piso (si 'nivelar piso' está marcado), lo guarda y aplica."""
+    job = _job(g)
+    job["floor"], job["floor_note"] = None, "sin nivelar"
+    if g["sharp_orient_on"].value():
+        try:
+            job["floor"] = core.floor_orient(*core.read_ply(job["ply"]))
+        except RuntimeError as exc:
+            job["floor_note"] = str(exc)
+    _save_job(g, job)
+    apply_orient(g)
+
+
+def apply_orient(g):
+    """Hilo principal, sin leer el PLY. Axis = piso guardado + escala de la altura + ajuste manual.
+    El ajuste se suma a los ángulos: Y gira la escena en el mundo; X y Z corrigen tilt y roll."""
     job = _job(g)
     with g:
         ax = nuke.toNode("SHARP_mundo")
     if ax is None:
         return
-    rx = rz = h = 0.0
-    s, note = 1.0, "sin nivelar"
-    if g["sharp_orient_on"].value():
-        try:
-            rx, rz, h = core.floor_orient(*core.read_ply(job["ply"]))
-        except RuntimeError as exc:
-            note = str(exc)
-        else:
-            height = g["sharp_cam_height"].value()
-            s = height / h if height > 0 else 1.0
-            note = "cámara a %.2f m del piso, tilt %.1f, roll %.1f" % (h * s, rx, rz)
-    ax["rotate"].setValue([rx, 0, rz])
+    rx, rz, h = job.get("floor") or (0.0, 0.0, 0.0)
+    height = g["sharp_cam_height"].value()
+    s = height / h if height > 0 and h > 0 else 1.0  # escala uniforme desde la cámara: el render no cambia
+    adj = lambda k: g[k].value() if k in g.knobs() else [0.0, 0.0, 0.0]  # nodos de la 0.2 no lo tienen
+    ar, ap = adj("sharp_adj_rot"), adj("sharp_adj_pos")
+    ax["rotate"].setValue([rx + ar[0], ar[1], rz + ar[2]])
     ax["uniform_scale"].setValue(s)
-    ax["translate"].setValue([0, h * s, 0])
+    ax["translate"].setValue([ap[0], h * s + ap[1], ap[2]])
+    note = job.get("floor_note", "")
+    if job.get("floor"):
+        note = "cámara a %.2f m del piso, tilt %.1f, roll %.1f" % (h * s, rx, rz)
     _status(g, "%s | %s" % (job.get("status", ""), note))
 
 

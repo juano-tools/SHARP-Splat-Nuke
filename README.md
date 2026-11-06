@@ -54,6 +54,8 @@ SHARP ya entrega metros si el focal y el filmback son los reales. Si conoces la 
 
 En planos sin piso bajo la cámara (cenitales, primeros planos), la nivelación no lo encuentra y la escena queda como la entrega SHARP.
 
+Para corregir a mano usa **ajuste rotación** y **ajuste posición**, que se suman a la nivelación. En rotación, X corrige el tilt, Z el roll e Y gira la escena sobre el eje vertical (por ejemplo, para alinear una calle con Z). La posición va en metros. También sirven con **nivelar piso** desmarcado, para orientar todo a mano. Mover estos controles no cambia el render desde la cámara de SHARP, porque la cámara se mueve con la escena.
+
 ### Aislar un objeto
 
 En **modo**, elige *Aislar objeto (alpha)*: SHARP usa el alpha del plate y solo genera lo que está dentro. Los settings de la sección *aislar objeto* ajustan el borde. Los objetos aislados quedan como cartones delgados si los miras de lado.

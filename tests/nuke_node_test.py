@@ -56,6 +56,14 @@ node.orient(g)
 assert px(g) == ref, ("la escala cambio el render", px(g), ref)
 print("RESULT altura 1.7:", g["sharp_status"].value())
 
+g["sharp_adj_rot"].setValue([0.5, 10, -0.3])  # ajuste manual: gira todo el mundo, cámara incluida
+g["sharp_adj_pos"].setValue([1, 0.2, -2])
+node.apply_orient(g)
+with g:
+    rot = nuke.toNode("SHARP_mundo")["rotate"].value()
+assert abs(rot[1] - 10) < 1e-9 and max(abs(a - b) for a, b in zip(px(g), ref)) < 1e-3, ("el ajuste cambió el render", px(g), ref)
+print("RESULT ajuste manual OK:", [round(v, 2) for v in rot])
+
 made = node.export(g, node.EXPORTS[-1])  # escena completa afuera: su SplatRender tiene que dar lo mismo
 sr_out = next(n for n in made if n.Class() == "SplatRender")
 diff = max(abs(a - b) for a, b in zip(px(sr_out), ref))
