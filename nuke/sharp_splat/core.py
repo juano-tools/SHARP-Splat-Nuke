@@ -124,18 +124,13 @@ def read_ply(path):
     return np.stack([a["x"], a["y"], a["z"]], 1).astype(np.float64), a["opacity"].astype(np.float64)
 
 
-def floor_orient(P, opacity, iters=1500, seed=0):
-    """Piso por RANSAC en los splats bajo la cámara.
-    Devuelve (rx, rz, altura) de un Axis ZXY/SRT que deja ese piso en Y=0, con el origen bajo la cámara."""
+def _ransac_plane(Q, tol, accept=None, iters=1500, seed=0, max_samples=50000):
+    """Plano dominante de Q (N x 3): RANSAC + ajuste por SVD de los inliers. tol(X) = tolerancia por punto.
+    Devuelve (normal unitaria, centroide de los inliers), o None si ningun plano pasa accept."""
     import numpy as np
-    d = -P[:, 2]
-    # shortcut: busca el piso bajo la cámara (Y < -0.5); en planos cenitales no hay piso así y falla
-    Q = P[(opacity > 0) & (P[:, 1] < -0.5) & (d > 0) & (d < 40)]  # opacity > 0 = alpha > 0.5
-    if len(Q) < 100:
-        raise RuntimeError("No encontré piso bajo la cámara.")
     rng = np.random.default_rng(seed)
-    S = Q[rng.choice(len(Q), min(len(Q), 50000), replace=False)]
-    tol = lambda X: 0.02 * np.maximum(-X[:, 2], 1)  # el error de depth crece con la distancia
+    S = Q[rng.choice(len(Q), min(len(Q), max_samples), replace=False)]
+    tol_s = tol(S)
     best, plane = 0, None
     for _ in range(iters):
         a, b, c = S[rng.choice(len(S), 3, replace=False)]
@@ -143,19 +138,93 @@ def floor_orient(P, opacity, iters=1500, seed=0):
         length = np.linalg.norm(n)
         if length < 1e-9:
             continue
-        n = n / length * (1 if n[1] >= 0 else -1)
-        if n[1] < 0.85:  # solo planos casi horizontales (< 32 grados)
+        n = n / length
+        if accept and not accept(n):
             continue
-        k = int((np.abs((S - a) @ n) < tol(S)).sum())
+        k = int((np.abs((S - a) @ n) < tol_s).sum())
         if k > best:
             best, plane = k, (n, a)
     if plane is None:
-        raise RuntimeError("No encontré piso bajo la cámara.")
+        return None
     n, a = plane
     inl = Q[np.abs((Q - a) @ n) < tol(Q)]
     c = inl.mean(0)
-    n = np.linalg.svd(inl - c, full_matrices=False)[2][2]
+    return np.linalg.svd(inl - c, full_matrices=False)[2][2], c
+
+
+def floor_orient(P, opacity):
+    """Piso por RANSAC en los splats bajo la cámara.
+    Devuelve (rx, rz, altura) de un Axis ZXY/SRT que deja ese piso en Y=0, con el origen bajo la cámara."""
+    import numpy as np
+    d = -P[:, 2]
+    # shortcut: busca el piso bajo la cámara (Y < -0.5); en planos cenitales no hay piso así y falla
+    Q = P[(opacity > 0) & (P[:, 1] < -0.5) & (d > 0) & (d < 40)]  # opacity > 0 = alpha > 0.5
+    plane = _ransac_plane(Q, lambda X: 0.02 * np.maximum(-X[:, 2], 1),  # el error de depth crece con la distancia
+                          accept=lambda n: abs(n[1]) >= 0.85) if len(Q) >= 100 else None  # casi horizontal (< 32°)
+    if plane is None:
+        raise RuntimeError("No encontré piso bajo la cámara.")
+    n, c = plane
     n = n if n[1] >= 0 else -n
     rz = np.arctan2(n[0], n[1])                  # Rz lleva la normal al plano YZ...
     rx = -np.arctan2(n[2], np.hypot(n[0], n[1]))  # ...y Rx la deja en +Y
     return float(np.degrees(rx)), float(np.degrees(rz)), float(-(n @ c))
+
+
+# --- cards ------------------------------------------------------------------------------------
+
+def rot_zxy(rx, ry, rz):
+    """Matriz de rotación de Nuke con rot_order ZXY (grados): R = Ry · Rx · Rz (medido en Nuke 17.1)."""
+    import numpy as np
+    a, b, c = np.radians([rx, ry, rz])
+    Rx = np.array([[1, 0, 0], [0, np.cos(a), -np.sin(a)], [0, np.sin(a), np.cos(a)]])
+    Ry = np.array([[np.cos(b), 0, np.sin(b)], [0, 1, 0], [-np.sin(b), 0, np.cos(b)]])
+    Rz = np.array([[np.cos(c), -np.sin(c), 0], [np.sin(c), np.cos(c), 0], [0, 0, 1]])
+    return Ry @ Rx @ Rz
+
+
+def euler_zxy(R):
+    """Inversa de rot_zxy: (rx, ry, rz) en grados."""
+    import numpy as np
+    rx = np.arcsin(np.clip(-R[1, 2], -1, 1))
+    return tuple(float(v) for v in np.degrees([rx, np.arctan2(R[0, 2], R[2, 2]), np.arctan2(R[1, 0], R[1, 1])]))
+
+
+def inside_quad(x, y, quad):
+    """Máscara de los puntos (x, y) dentro del polígono quad [(x, y), ...] (regla par-impar)."""
+    import numpy as np
+    inside = np.zeros(np.shape(x), bool)
+    for (x0, y0), (x1, y1) in zip(quad, quad[1:] + quad[:1]):
+        cross = (y0 > y) != (y1 > y)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            xi = x0 + (y - y0) * (x1 - x0) / (y1 - y0)
+        inside ^= cross & (x < xi)
+    return inside
+
+
+def card_from_quad(P, cam_pos, cam_R, f_px, size, quad):
+    """Card sobre la superficie que muestra la región quad (esquinas en píxeles: abajo-izq., abajo-der.,
+    arriba-der., arriba-izq.). P = posiciones (mundo) de lo que se ve dentro de la región.
+    Ajusta un plano a P y lanza los rayos de la cámara por las esquinas hasta ese plano.
+    Devuelve translate, rotate (ZXY), size (ancho, alto), corners y la fracción de puntos en el plano."""
+    import numpy as np
+    if len(P) < 20:
+        raise RuntimeError("Hay muy poca superficie dentro de la región.")
+    cam_pos = np.asarray(cam_pos, float)
+    dist = lambda X: np.maximum(np.linalg.norm(X - cam_pos, axis=1), 1)
+    n, c = _ransac_plane(P, lambda X: 0.02 * dist(X), iters=600, max_samples=4000)  # rápido: se llama al arrastrar
+    n = n if n @ (cam_pos - c) > 0 else -n  # la cara mira a la cámara
+    W, H = size
+    d = np.array([[(u - W / 2.0) / f_px, (v - H / 2.0) / f_px, -1.0] for u, v in quad]) @ np.asarray(cam_R).T
+    t = ((c - cam_pos) @ n) / (d @ n)
+    if np.any(t <= 0):
+        raise RuntimeError("Una esquina no apunta al plano: acerca las esquinas a la superficie.")
+    C = cam_pos + t[:, None] * d
+    x = (C[1] + C[2]) / 2 - (C[0] + C[3]) / 2
+    x = x - (x @ n) * n
+    w = np.linalg.norm(x)
+    x = x / w
+    y = np.cross(n, x)
+    h = abs(((C[2] + C[3]) / 2 - (C[0] + C[1]) / 2) @ y)
+    fit = float(np.mean(np.abs((P - c) @ n) < 0.02 * dist(P)))
+    return dict(translate=C.mean(0).tolist(), rotate=euler_zxy(np.c_[x, y, n]), size=(float(w), float(h)),
+                corners=C.tolist(), fit=fit)

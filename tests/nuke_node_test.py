@@ -65,6 +65,38 @@ with g:
 assert abs(rot[1] - 10) < 1e-9 and max(abs(a - b) for a, b in zip(px(g), ref)) < 1e-3, ("el ajuste cambió el render", px(g), ref)
 print("RESULT ajuste manual OK:", [round(v, 2) for v in rot])
 
+import numpy as np  # noqa: E402
+
+# card sobre la pared de ladrillo de la izquierda
+for i, xy in enumerate([(200, 700), (700, 800), (700, 1500), (200, 1550)], 1):
+    g["sharp_card_%d" % i].setValue(list(xy))
+card = node.create_card(g)
+n = core.rot_zxy(*card["rotate"].value())[:, 2]
+print("RESULT card:", card["label"].value(), "normal", n.round(3), "pos", [round(v, 2) for v in card["translate"].value()])
+assert abs(n[1]) < 0.2, "la pared tendría que quedar vertical en el mundo nivelado"
+before = card["translate"].value()
+g["sharp_card_2"].setValue([900, 820])  # mover una esquina: la card viva se reajusta
+t0 = time.time()
+node.update_card(g)
+print("RESULT reajuste en %.2f s:" % (time.time() - t0), card["label"].value())
+assert card["translate"].value() != before
+fixed = card
+card2 = node.create_card(g)  # la nueva pasa a ser la viva; la anterior queda fija
+g["sharp_card_2"].setValue([700, 800])
+node.update_card(g)
+assert fixed["translate"].value() != card2["translate"].value()
+for c in (fixed, card2):
+    nuke.delete(c)
+
+# card en el piso de la calle: horizontal y a la altura del suelo (0.2 por el "mover escena")
+for i, xy in enumerate([(1000, 60), (2400, 60), (2200, 280), (1200, 280)], 1):
+    g["sharp_card_%d" % i].setValue(list(xy))
+floor = node.create_card(g)
+n = core.rot_zxy(*floor["rotate"].value())[:, 2]
+print("RESULT card piso:", floor["label"].value(), "normal", n.round(3), "y", round(floor["translate"].value(1), 3))
+assert n[1] > 0.98 and abs(floor["translate"].value(1) - 0.2) < 0.15, "el piso tendría que quedar horizontal en Y≈0.2"
+nuke.delete(floor)
+
 made = node.export(g, node.EXPORTS[-1])  # escena completa afuera: su SplatRender tiene que dar lo mismo
 sr_out = next(n for n in made if n.Class() == "SplatRender")
 diff = max(abs(a - b) for a, b in zip(px(sr_out), ref))

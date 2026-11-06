@@ -56,6 +56,12 @@ En planos sin piso bajo la cámara (cenitales, primeros planos), la nivelación 
 
 Para corregir a mano usa **girar escena (°)** y **mover escena (m)**, que se suman a la nivelación. En el giro, X corrige el tilt, Z el roll e Y gira la escena sobre el eje vertical (por ejemplo, para alinear una calle con Z). También sirven con **nivelar piso** desmarcado, para orientar todo a mano. Mover estos controles no cambia el render desde la cámara de SHARP, porque la cámara se mueve con la escena.
 
+### Cards sobre una superficie
+
+En la sección **card sobre una superficie**, aprieta **Nueva card**: se crea afuera un GeoCard. Con el panel del nodo abierto, mueve las 4 esquinas en el viewer alrededor de una superficie del plate (una pared, el piso, un letrero). La card se ajusta sola mientras arrastras: queda sobre esa superficie, orientada con ella y del tamaño de la región, en el mundo del nodo. El label de la card muestra su tamaño en metros y qué parte de los splats de la región cae en el plano; si es bajo, la región mezcla superficies.
+
+La última card creada es la que sigue a las esquinas. Si aprietas **Nueva card** otra vez, la anterior queda fija y la nueva pasa a seguir las esquinas. Las cards también se reajustan si cambias la nivelación, el giro o la posición de la escena.
+
 ### Aislar un objeto
 
 En **modo**, elige *Aislar objeto (alpha)*: SHARP usa el alpha del plate y solo genera lo que está dentro. Los ajustes de la sección *aislar objeto* afinan el borde. Los objetos aislados quedan como cartones delgados si los miras de lado.
