@@ -50,7 +50,7 @@ try {
         else { $warn += "ComfyUI no tiene el nodo ${node}: instala $($need[$node]) con ComfyUI Manager y reinicia ComfyUI." }
     }
 } catch {
-    $warn += "ComfyUI no responde en $url, asi que no pude revisar sus nodos. Necesita ComfyUI-Sharp, ComfyUI-SHARP-HDR y ComfyUI-HQ-Image-Save (si falta alguno, Nuke te lo dice al Generar)."
+    $warn += "ComfyUI no esta abierto, asi que no pude revisar sus nodos (no hace falta abrirlo para usar el plugin: se abre solo al Generar). Necesita ComfyUI-Sharp, ComfyUI-SHARP-HDR y ComfyUI-HQ-Image-Save (si falta alguno, Nuke te lo dice al Generar)."
 }
 
 Write-Host ''

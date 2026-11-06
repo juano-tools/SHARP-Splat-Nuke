@@ -172,6 +172,51 @@ def test_comfy_missing_package():
     assert "Instala" not in comfy._error(b'{"error": {"message": "Prompt has no outputs"}}')
 
 
+
+def test_comfy_launch_command(tmp):
+    """El comando para abrir ComfyUI sale igual que el de Comfy Desktop 2 para cada tipo de instalación."""
+    import json
+    from sharp_splat import comfy
+
+    def touch(*parts):
+        path = os.path.join(tmp, *parts)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        open(path, "w").close()
+        return path
+
+    home = os.path.join(tmp, "Comfy Desktop")
+    std = os.path.join(tmp, "Installs", "ComfyUI")
+    py = touch("Installs", "ComfyUI", "ComfyUI", ".venv", "Scripts", "python.exe")
+    touch("Installs", "ComfyUI", "ComfyUI", "main.py")
+    yaml = touch("Comfy Desktop", "instance-model-paths", "inst-1.yaml")
+    port_root = os.path.join(tmp, "Portable", "ComfyUI_windows_portable")
+    touch("Portable", "ComfyUI_windows_portable", "python_embeded", "python.exe")
+    touch("Portable", "ComfyUI_windows_portable", "ComfyUI", "main.py")
+    installs = [
+        {"id": "inst-0", "sourceId": "cloud", "lastLaunchedAt": 9},
+        {"id": "inst-1", "sourceId": "standalone", "installPath": std, "status": "installed", "lastLaunchedAt": 5,
+         "launchArgs": "--port 8000 --enable-manager", "useSharedInput": False, "inputDir": os.path.join(tmp, "in")},
+        {"id": "inst-2", "sourceId": "portable", "installPath": os.path.join(tmp, "Portable"), "lastLaunchedAt": 1},
+    ]
+    with open(touch("Comfy Desktop", "installations.json"), "w") as f:
+        json.dump(installs, f)
+    with open(touch("Comfy Desktop", "settings.json"), "w") as f:
+        json.dump({"outputDir": os.path.join(tmp, "out")}, f)
+
+    argv, cwd = comfy._desktop2(home)  # la standalone: la nube no cuenta aunque sea la más reciente
+    assert cwd == std and argv[:3] == [py, "-s", os.path.join("ComfyUI", "main.py")], argv
+    assert argv[3:] == ["--port", "8000", "--enable-manager", "--extra-model-paths-config", yaml,
+                        "--input-directory", os.path.join(tmp, "in"), "--output-directory", os.path.join(tmp, "out")], argv
+    installs[1]["status"] = "installing"
+    with open(os.path.join(home, "installations.json"), "w") as f:
+        json.dump(installs, f)
+    argv, cwd = comfy._desktop2(home)  # la portable, con los argumentos por defecto de Desktop
+    assert cwd == port_root and argv[:4] == [os.path.join(port_root, "python_embeded", "python.exe"), "-s",
+                                             os.path.join(port_root, "ComfyUI", "main.py"), "--windows-standalone-build"]
+    assert comfy._from_folder(os.path.join(tmp, "Portable"))[1] == port_root  # SHARP_SPLAT_COMFYUI_DIR
+    assert comfy._desktop1(os.path.join(tmp, "nada")) is None
+
+
 if __name__ == "__main__":
     import tempfile
     with tempfile.TemporaryDirectory() as tmp:

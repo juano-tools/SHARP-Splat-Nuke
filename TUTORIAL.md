@@ -2,7 +2,7 @@
 
 En este tutorial tomas un cuadro de un plano fijo, lo conviertes en Gaussian splats con SHARP Splat y le agregas un pequeño dolly que el plano no tenía. De paso nivelas la escena, limpias los splats que se van al infinito, pegas una card a una pared y te llevas todo al comp para seguir editándolo con nodos de Nuke.
 
-Toma unos 15 minutos. Necesitas el paquete instalado y ComfyUI funcionando, como dice el [README](README.md#qué-necesitas).
+Toma unos 15 minutos. Necesitas el paquete y ComfyUI instalados, como dice el [README](README.md#qué-necesitas).
 
 ---
 
@@ -28,7 +28,7 @@ Deja el **modo** en *Escena completa*. *Aislar objeto* se ve en el paso 9.
 
 ## 3. Genera y comprueba que calza
 
-Aprieta **Generar**. La primera vez ComfyUI-Sharp baja el modelo (2,8 GB) y tarda más. Desde la segunda, cada cuadro toma unos 5 segundos. Mientras trabaja, la línea `estado` dice "calculando...".
+Aprieta **Generar**. Si ComfyUI está cerrado, el nodo lo abre sin ventana: eso suma cerca de un minuto, solo la primera vez en cada sesión de Nuke. La primera vez ComfyUI-Sharp baja el modelo (2,8 GB) y tarda más. Desde la segunda, cada cuadro toma unos 5 segundos. Mientras trabaja, la línea `estado` dice "calculando...".
 
 La salida del nodo es el render de los splats **desde la cámara original**, así que tiene que calzar con el plate. Compruébalo así:
 
@@ -120,7 +120,8 @@ El objeto aislado sale como un cartón con volumen hacia la cámara. Sirve para 
 | La cámara queda a una altura absurda | La escala de SHARP no calza: escribe la altura real en **altura cámara (m)**. |
 | Splats sueltos muy lejos o una "cortina" detrás de todo | Recorta (paso 5). |
 | Huecos entre splats al mover la cámara | Sube **tamaño** en *splats*, o achica el movimiento. |
-| Se queda en "calculando..." para siempre | Reinicia ComfyUI. No se puede cancelar a mitad de una corrida. |
+| Se queda en "calculando..." para siempre | Cierra y vuelve a abrir Nuke (el ComfyUI que abrió el nodo se cierra con Nuke). No se puede cancelar a mitad de una corrida. |
+| "ComfyUI está cerrado y no encontré cómo abrirlo" | Tu ComfyUI no es de Comfy Desktop: define la variable de entorno `SHARP_SPLAT_COMFYUI_DIR` con su carpeta, o ábrelo tú antes de Generar. |
 | Los splats se ven muy oscuros en el viewer 3D | Es el color lineal. Para mirarlos, saca una copia con **splats en Rec.709 (previs)**. |
 
 Para el detalle de cada control, mira el [README](README.md). Las herramientas sobre las que trabaja este paquete están en la sección [Créditos](README.md#créditos).

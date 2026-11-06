@@ -116,6 +116,7 @@ def _add_knobs(g):
     add(nuke.Text_Knob("sharp_div1", ""))
     add(nuke.PyScript_Knob("sharp_generate", "<span style='color:%s'><b>&#9654; Generar</b></span>" % GREEN, _cmd("generate")),
         tip="Corre SHARP en ComfyUI y rearma la escena. Unos 5 s; la primera vez, más.\n"
+            "Si ComfyUI está cerrado, lo abre sin ventana (cerca de un minuto) y lo cierra al cerrar Nuke.\n"
             "Después de cambiar cualquier ajuste de SHARP hay que volver a Generar.")
 
     def section(name, label, closed=True):  # grupo plegable; cierra el anterior si hay uno abierto

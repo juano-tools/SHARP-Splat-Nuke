@@ -9,7 +9,9 @@ Sirve para mover un poco la cámara sobre un plano fijo (parallax, pequeños dol
 ## Qué necesitas
 
 - **Nuke 17 o más nuevo** (NukeX). SplatRender no existe en versiones anteriores.
-- **ComfyUI abierto en el mismo PC** al apretar Generar. Sirven Comfy Desktop (puerto 8000) o ComfyUI portable (puerto 8188); el nodo prueba los dos. Si el tuyo usa otra dirección, defínela en la variable de entorno `SHARP_SPLAT_COMFYUI_URL` (por ejemplo, `http://127.0.0.1:8190`).
+- **ComfyUI instalado en el mismo PC**: Comfy Desktop o ComfyUI portable. No hace falta abrirlo. Al apretar Generar, si está cerrado, el nodo lo abre sin ventana, con la misma configuración que usa Comfy Desktop (la primera vez tarda cerca de un minuto), y lo cierra al cerrar Nuke. Si ya está abierto, lo usa.
+  - Las instalaciones de Comfy Desktop (la app actual y la anterior) las encuentra solo. Para un ComfyUI portable o manual que Comfy Desktop no conoce, define la variable de entorno `SHARP_SPLAT_COMFYUI_DIR` con su carpeta (por ejemplo, `D:\ComfyUI_windows_portable`).
+  - Si tu ComfyUI ya abierto usa una dirección distinta de los puertos 8000 u 8188, defínela en `SHARP_SPLAT_COMFYUI_URL` (por ejemplo, `http://127.0.0.1:8190`).
 - **En ComfyUI**, estos tres paquetes de nodos (se instalan con ComfyUI Manager):
   - `ComfyUI-Sharp` (Pozzetti)
   - `ComfyUI-SHARP-HDR` (metalrahul)
@@ -21,7 +23,7 @@ La primera vez, ComfyUI-Sharp baja el modelo (2,8 GB). Desde la segunda vez, cad
 ## Instalar
 
 1. Doble clic en `instalar.bat`.
-2. El instalador copia el plugin a tu `.nuke`, agrega el menú y revisa si tienes Nuke 17 y los nodos de ComfyUI (para eso, ComfyUI tiene que estar abierto). Si falta algo, te lo dice en amarillo.
+2. El instalador copia el plugin a tu `.nuke`, agrega el menú y revisa si tienes Nuke 17. Si ComfyUI está abierto, también revisa sus nodos. Si falta algo, te lo dice en amarillo.
 3. Abre Nuke 17.
 
 Para quitarlo, usa `desinstalar.bat`.
@@ -106,7 +108,8 @@ Este paquete es solo la parte de Nuke. El trabajo de fondo es de:
 ## Problemas conocidos
 
 - **No se puede cancelar a mitad.** Cancelar el /interrupt de ComfyUI deja colgado al worker de ComfyUI-Sharp. Cada corrida dura unos 5 segundos, así que hay que esperar que termine.
-- Si una corrida queda "calculando..." para siempre, reinicia ComfyUI.
+- Si una corrida queda "calculando..." para siempre, cierra y vuelve a abrir Nuke: si el nodo abrió ComfyUI, se cierra con Nuke y se vuelve a abrir al apretar Generar. Si lo abriste tú, reinícialo.
+- Si ComfyUI no abre, el error muestra la ruta de su log (`sharp_splat_comfyui.log`, en la carpeta temporal de Windows).
 - Si alguien abre el script sin el plugin instalado, el nodo sigue renderizando con la última versión, pero los botones no funcionan.
 
 ## Para desarrolladores
