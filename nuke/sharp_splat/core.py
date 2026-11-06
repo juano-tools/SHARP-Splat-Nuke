@@ -60,40 +60,32 @@ def lens_from_metadata(md, width, height):
 
 # --- ComfyUI ----------------------------------------------------------------------------------
 
-def comfy():
-    """Cliente de ComfyUI de GenFill: mismo servidor, mismo arranque automatico de Comfy Desktop."""
-    try:
-        from genfill.backends import comfyui
-    except ImportError:
-        raise RuntimeError("SHARP Splat usa el cliente de ComfyUI de GenFill, y GenFill no está instalado.")
-    return comfyui
-
-
-def build_workflow(c, exr, isolation, focal, filmback, prefix, colorspace, opts):
-    g = c._Graph()
+def build_workflow(exr, isolation, focal, filmback, prefix, colorspace, opts):
+    from .comfy import Graph, out
+    g = Graph()
     model = g.add("LoadSharpModel", precision="auto")
     img = g.add("LoadEXR", filepath=exr, tonemap="linear", image_load_cap=0,
                 skip_first_images=0, select_every_nth=1)
     pred = g.add("SharpHDR_Predict", model=model, image=img,
                  mode="Object Isolation" if isolation else "Full Scene",
-                 alpha=c._out(img, 1) if isolation else None, invert_alpha=False,  # LoadEXR: alpha derecho
+                 alpha=out(img, 1) if isolation else None, invert_alpha=False,  # LoadEXR: alpha derecho
                  focal_length_mm=float(focal), filmback_width_mm=float(filmback),
                  output_prefix=prefix, working_colorspace=colorspace, **opts)
     for i in (0, 6, 7):  # ply_path, nuke_script_path, proxy_obj_path, para leerlos del historial
-        g.add("PreviewAny", source=c._out(pred, i))
+        g.add("PreviewAny", source=out(pred, i))
     return g.nodes
 
 
 def generate(exr, isolation, focal, filmback, prefix, colorspace, opts, progress=None):
     """Cualquier hilo. Devuelve {"nk", "ply", "obj"} con lo que escribio SHARP-HDR ("obj" puede faltar)."""
-    c = comfy()
-    c.wait_for_server(progress)
+    from . import comfy
+    comfy.wait_for_server(progress)
     if progress:
         progress(0.3, "SHARP (la primera vez baja y carga el modelo)...")
-    # Sin `cancelled` a proposito: el /interrupt de c.run desincroniza el worker de comfy-env
-    # de ComfyUI-Sharp y la corrida siguiente queda colgada (medido 2026-11-04).
-    # shortcut: no se puede cancelar a mitad (~6 s); si comfy-env lo arregla, pasar cancelled.
-    hist = c.run(build_workflow(c, exr, isolation, focal, filmback, prefix, colorspace, opts))
+    # Sin cancelar a propósito: un /interrupt desincroniza el worker de comfy-env de ComfyUI-Sharp y la
+    # corrida siguiente queda colgada (medido 2026-11-04).
+    # shortcut: no se puede cancelar a mitad (~6 s); si comfy-env lo arregla, agregar /interrupt en comfy.run.
+    hist = comfy.run(build_workflow(exr, isolation, focal, filmback, prefix, colorspace, opts))
     paths = {}
     for out in hist.get("outputs", {}).values():
         text = out.get("text")

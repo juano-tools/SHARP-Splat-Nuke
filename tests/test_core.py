@@ -163,6 +163,15 @@ def test_crop_ply(tmp):
     assert core.fit_box(near, [0, 0, 0]) == [0, 0, -4, 0, 0, -1]  # el lejano queda fuera
 
 
+
+def test_comfy_missing_package():
+    """Un nodo que falta en ComfyUI se traduce al paquete que hay que instalar."""
+    from sharp_splat import comfy
+    body = b'{"error": {"message": "Node \'SharpHDR_Predict\' not found. The custom node may not be installed."}}'
+    assert comfy._error(body).endswith("Instala ComfyUI-SHARP-HDR con ComfyUI Manager y reinicia ComfyUI.")
+    assert "Instala" not in comfy._error(b'{"error": {"message": "Prompt has no outputs"}}')
+
+
 if __name__ == "__main__":
     import tempfile
     with tempfile.TemporaryDirectory() as tmp:

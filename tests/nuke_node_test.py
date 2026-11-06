@@ -13,9 +13,6 @@ import nuke
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "nuke"))
-gf = os.path.expanduser("~/.nuke/plugins/GenFill/nuke/python")
-if os.path.isdir(gf):
-    sys.path.insert(0, gf)
 from sharp_splat import core, node  # noqa: E402
 assert set(node.PARAMS) == {n for n, _ in core.SETTINGS}, "cada ajuste de SHARP necesita nombre y descripción"
 

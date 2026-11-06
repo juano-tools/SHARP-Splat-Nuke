@@ -35,15 +35,12 @@ Step 'Revisando lo que necesita'
 if (-not (Get-ChildItem 'C:\Program Files' -Directory -Filter 'Nuke17*' -ErrorAction SilentlyContinue)) {
     $warn += 'No encontre Nuke 17 en C:\Program Files: SHARP Splat necesita Nuke 17 o mas nuevo (SplatRender).'
 }
-$genfill = Get-ChildItem $NukeDir -Recurse -Depth 6 -Filter comfyui.py -ErrorAction SilentlyContinue |
-           Where-Object { $_.FullName -match 'genfill\\backends\\comfyui\.py$' } | Select-Object -First 1
-if (-not $genfill) { $warn += 'No encontre GenFill en .nuke: SHARP Splat usa su conexion con ComfyUI. Instala GenFill del estudio.' }
-else { Write-Host "GenFill: $($genfill.FullName)" }
-
-$url = $env:GENFILL_COMFYUI_URL
-$cfg = Join-Path $NukeDir 'genfill\config.json'
-if (-not $url -and (Test-Path $cfg)) { try { $url = (Get-Content $cfg -Raw | ConvertFrom-Json).comfyui_url } catch {} }
-if (-not $url) { $url = 'http://127.0.0.1:8000' }
+# los mismos lugares donde lo busca el plugin (comfy.py): Comfy Desktop usa 8000, ComfyUI portable 8188
+$urls = if ($env:SHARP_SPLAT_COMFYUI_URL) { @($env:SHARP_SPLAT_COMFYUI_URL) } else { @('http://127.0.0.1:8000', 'http://127.0.0.1:8188') }
+$url = $urls[0]
+foreach ($u in $urls) {
+    try { Invoke-WebRequest -UseBasicParsing -Uri "$($u.TrimEnd('/'))/system_stats" -TimeoutSec 2 | Out-Null; $url = $u; break } catch {}
+}
 $need = @{ 'SharpHDR_Predict' = 'ComfyUI-SHARP-HDR'; 'LoadSharpModel' = 'ComfyUI-Sharp'; 'LoadEXR' = 'ComfyUI-HQ-Image-Save' }
 try {
     foreach ($node in $need.Keys) {

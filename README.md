@@ -9,7 +9,7 @@ Sirve para mover un poco la cámara sobre un plano fijo (parallax, pequeños dol
 ## Qué necesitas
 
 - **Nuke 17 o más nuevo** (NukeX). SplatRender no existe en versiones anteriores.
-- **GenFill del estudio**, instalado y conectado a tu ComfyUI. SHARP Splat usa esa misma conexión, y si ComfyUI Desktop está cerrado, lo abre.
+- **ComfyUI abierto en el mismo PC** al apretar Generar. Sirven Comfy Desktop (puerto 8000) o ComfyUI portable (puerto 8188); el nodo prueba los dos. Si el tuyo usa otra dirección, defínela en la variable de entorno `SHARP_SPLAT_COMFYUI_URL` (por ejemplo, `http://127.0.0.1:8190`).
 - **En ComfyUI**, estos tres paquetes de nodos (se instalan con ComfyUI Manager):
   - `ComfyUI-Sharp` (Pozzetti)
   - `ComfyUI-SHARP-HDR` (metalrahul)
@@ -21,7 +21,7 @@ La primera vez, ComfyUI-Sharp baja el modelo (2,8 GB). Desde la segunda vez, cad
 ## Instalar
 
 1. Doble clic en `instalar.bat`.
-2. El instalador copia el plugin a tu `.nuke`, agrega el menú y revisa si tienes Nuke 17, GenFill y los nodos de ComfyUI. Si falta algo, te lo dice en amarillo.
+2. El instalador copia el plugin a tu `.nuke`, agrega el menú y revisa si tienes Nuke 17 y los nodos de ComfyUI (para eso, ComfyUI tiene que estar abierto). Si falta algo, te lo dice en amarillo.
 3. Abre Nuke 17.
 
 Para quitarlo, usa `desinstalar.bat`.
@@ -113,5 +113,6 @@ Este paquete es solo la parte de Nuke. El trabajo de fondo es de:
 
 - `nuke/sharp_splat/core.py`: lo que no depende de Nuke (metadata, workflow, PLY, piso).
 - `nuke/sharp_splat/node.py`: el Group y sus botones.
+- `nuke/sharp_splat/comfy.py`: el cliente de ComfyUI (encola el workflow y espera el resultado).
 - `python tests/test_core.py`: pruebas sin Nuke (necesitan numpy).
 - `Nuke17.1.exe -i -t --nukex tests/nuke_node_test.py <plate.####.exr> <cuadro> <focal> <carpeta>`: flujo completo con ComfyUI y la GPU.

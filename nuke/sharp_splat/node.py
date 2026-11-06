@@ -115,7 +115,7 @@ def _add_knobs(g):
         tip="Vuelve a llenar focal y ancho de sensor con la metadata del plate (pisa lo escrito).")
     add(nuke.Text_Knob("sharp_div1", ""))
     add(nuke.PyScript_Knob("sharp_generate", "<span style='color:%s'><b>&#9654; Generar</b></span>" % GREEN, _cmd("generate")),
-        tip="Corre SHARP en ComfyUI (vía GenFill) y rearma la escena. Unos 5 s; la primera vez, más.\n"
+        tip="Corre SHARP en ComfyUI y rearma la escena. Unos 5 s; la primera vez, más.\n"
             "Después de cambiar cualquier ajuste de SHARP hay que volver a Generar.")
 
     def section(name, label, closed=True):  # grupo plegable; cierra el anterior si hay uno abierto
