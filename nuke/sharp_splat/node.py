@@ -169,10 +169,7 @@ def create():
         nuke.nodes.Output(name="Output1")
     _add_knobs(g)
     g["knobChanged"].setValue("import sharp_splat.node as n; n.knob_changed()")
-    g["tile_color"].setValue(0x2F6F5FFF)
-    g["icon"].setValue("sharp_splat.png")
-    g["label"].setValue("cuadro [value sharp_frame]")
-    g["note_font"].setValue("Verdana Bold")
+    g["tile_color"].setValue(0x3A5A40FF)
     if sel:
         g.setInput(0, sel[-1])
         g.setXYpos(sel[-1].xpos(), sel[-1].ypos() + 120)
