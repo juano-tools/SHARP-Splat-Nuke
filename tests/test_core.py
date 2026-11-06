@@ -80,6 +80,31 @@ def test_card_at_point():
     spun = core.rot_zxy(*core.card_at_point(P, cam_pos, cam_R, f, (W, H), (2000, 1100), spin=30)["rotate"])
     assert abs(np.degrees(np.arccos(np.clip(spun[:, 0] @ R[:, 0], -1, 1))) - 30) < 1e-6
 
+    # punto en el borde de una pared chica delante de otra grande: gana la de adelante, no la dominante
+    P_front, center = surface(n_wall, cam_pos + cam_R @ np.array([0, 0, -6.0]), (2000, 1100), r=40)
+    P_back, _ = surface(np.array([0, 0, 1.0]), cam_pos + cam_R @ np.array([0, 0, -15.0]), (2000, 1100), r=150)
+    card = core.card_at_point(np.r_[P_front, P_back], cam_pos, cam_R, f, (W, H), (2000, 1100), radius_px=150)
+    assert np.allclose(card["translate"], center, atol=0.05) and core.rot_zxy(*card["rotate"])[:, 2] @ n_wall > 0.99, card
+    # letrero chico de frente delante de una pared oblicua que llena la región: gana el letrero
+    n_sign = cam_R @ np.array([0, 0, 1.0])
+    P_sign, center = surface(n_sign, cam_pos + cam_R @ np.array([0, 0, -20.0]), (2000, 1100), r=35)
+    n_obl = cam_R @ core.rot_zxy(0, 80, 0) @ np.array([0, 0, 1.0])  # pared casi paralela al rayo
+    P_wall, _ = surface(n_obl, cam_pos + cam_R @ np.array([0, 0, -21.0]), (2000, 1100), r=150)
+    card = core.card_at_point(np.r_[P_sign, P_wall], cam_pos, cam_R, f, (W, H), (2000, 1100), radius_px=50)  # objeto chico: radio chico
+    assert np.allclose(card["translate"], center, atol=0.1) and core.rot_zxy(*card["rotate"])[:, 2] @ n_sign > 0.98, card
+    # un plano visto de canto (techo de auto a la altura de la cámara) no sirve de card
+    fwd = cam_R @ np.array([0, 0, -1.0])
+    fwd = np.array([fwd[0], 0, fwd[2]]) / np.hypot(fwd[0], fwd[2])
+    roof = cam_pos + 20 * fwd  # a la altura de la cámara: se ve de canto
+    edge = np.c_[rng.uniform(-1, 1, 800), np.zeros(800), rng.uniform(-1, 1, 800)] + roof
+    d = cam_R.T @ (roof - cam_pos)
+    pick = (W / 2 + f * d[0] / -d[2], H / 2 + f * d[1] / -d[2])
+    try:
+        core.card_at_point(edge, cam_pos, cam_R, f, (W, H), pick)
+        raise AssertionError("tenía que rechazar el plano de canto")
+    except RuntimeError:
+        pass
+
     P, center = surface(np.array([0, 1.0, 0]), np.array([0, 0, 0.0]), (1900, 300))  # piso en Y=0
     card = core.card_at_point(P, cam_pos, cam_R, f, (W, H), (1900, 300))
     assert abs(card["translate"][1]) < 0.02 and core.rot_zxy(*card["rotate"])[1, 2] > 0.999, card

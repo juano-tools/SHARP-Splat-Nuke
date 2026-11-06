@@ -157,13 +157,16 @@ def preview_ply(src, acescg=True):
     return dst
 
 
-def _ransac_plane(Q, tol, accept=None, iters=1500, seed=0, max_samples=50000):
+def _ransac_plane(Q, tol, accept=None, iters=1500, seed=0, max_samples=50000, weights=None):
     """Plano dominante de Q (N x 3): RANSAC + ajuste por SVD de los inliers. tol(X) = tolerancia por punto.
-    Devuelve (normal unitaria, centroide de los inliers), o None si ningun plano pasa accept."""
+    accept(n, a) filtra candidatos (normal, punto del plano); weights = peso de cada punto en el puntaje
+    (por defecto todos 1). Devuelve (normal, centroide de los inliers) o None."""
     import numpy as np
     rng = np.random.default_rng(seed)
-    S = Q[rng.choice(len(Q), min(len(Q), max_samples), replace=False)]
+    pick = rng.choice(len(Q), min(len(Q), max_samples), replace=False)
+    S = Q[pick]
     tol_s = tol(S)
+    w_s = np.ones(len(S)) if weights is None else np.asarray(weights)[pick]
     best, plane = 0, None
     for _ in range(iters):
         a, b, c = S[rng.choice(len(S), 3, replace=False)]
@@ -172,9 +175,9 @@ def _ransac_plane(Q, tol, accept=None, iters=1500, seed=0, max_samples=50000):
         if length < 1e-9:
             continue
         n = n / length
-        if accept and not accept(n):
+        if accept and not accept(n, a):
             continue
-        k = int((np.abs((S - a) @ n) < tol_s).sum())
+        k = float(w_s[np.abs((S - a) @ n) < tol_s].sum())
         if k > best:
             best, plane = k, (n, a)
     if plane is None:
@@ -193,7 +196,7 @@ def floor_orient(P, opacity):
     # shortcut: busca el piso bajo la cámara (Y < -0.5); en planos cenitales no hay piso así y falla
     Q = P[(opacity > 0) & (P[:, 1] < -0.5) & (d > 0) & (d < 40)]  # opacity > 0 = alpha > 0.5
     plane = _ransac_plane(Q, lambda X: 0.02 * np.maximum(-X[:, 2], 1),  # el error de depth crece con la distancia
-                          accept=lambda n: abs(n[1]) >= 0.85) if len(Q) >= 100 else None  # casi horizontal (< 32°)
+                          accept=lambda n, a: abs(n[1]) >= 0.85) if len(Q) >= 100 else None  # casi horizontal (< 32°)
     if plane is None:
         raise RuntimeError("No encontré piso bajo la cámara.")
     n, c = plane
@@ -222,7 +225,7 @@ def euler_zxy(R):
     return tuple(float(v) for v in np.degrees([rx, np.arctan2(R[0, 2], R[2, 2]), np.arctan2(R[1, 0], R[1, 1])]))
 
 
-def card_at_point(P, cam_pos, cam_R, f_px, size, pick, spin=0.0):
+def card_at_point(P, cam_pos, cam_R, f_px, size, pick, spin=0.0, radius_px=120.0, upright=True):
     """Card pegada a la superficie bajo el píxel pick (Nuke: origen abajo a la izquierda).
     P = posiciones (mundo) de lo que se ve alrededor del punto. Ajusta un plano a P, pone el centro donde
     el rayo del punto corta ese plano y orienta la card con la superficie: en paredes, el borde de abajo
@@ -232,11 +235,78 @@ def card_at_point(P, cam_pos, cam_R, f_px, size, pick, spin=0.0):
     if len(P) < 20:
         raise RuntimeError("Hay muy poca superficie bajo el punto.")
     cam_pos, cam_R = np.asarray(cam_pos, float), np.asarray(cam_R, float)
-    dist = lambda X: np.maximum(np.linalg.norm(X - cam_pos, axis=1), 1)
-    n, c = _ransac_plane(P, lambda X: 0.02 * dist(X), iters=600, max_samples=4000)  # rápido: se llama al arrastrar
-    n = n if n @ (cam_pos - c) > 0 else -n  # la cara mira a la cámara
     W, H = size
     d = cam_R @ np.array([(pick[0] - W / 2.0) / f_px, (pick[1] - H / 2.0) / f_px, -1.0])
+    dn = d / np.linalg.norm(d)
+    # 1) mapa de profundidad de la capa visible: ventanas en grilla dentro del radio; en cada una, el
+    #    percentil 25 de la distancia de sus splats. Los splats sueltos forman estelas a lo largo del rayo
+    #    (ruido de SHARP ~2 %) y con ellos los planos de canto ganaban; la capa visible no tiene ese problema.
+    V = P - cam_pos
+    rng_ = np.linalg.norm(V, axis=1)
+    loc = V @ cam_R  # coordenadas de cámara
+    u = W / 2.0 + f_px * loc[:, 0] / -loc[:, 2]
+    v = H / 2.0 + f_px * loc[:, 1] / -loc[:, 2]
+    step = radius_px / 4.0
+    pts, wts, px_d = [], [], []
+    for gy in np.arange(-4, 5):
+        for gx in np.arange(-4, 5):
+            cx, cy = pick[0] + gx * step, pick[1] + gy * step
+            dd = np.hypot(cx - pick[0], cy - pick[1])
+            if dd > radius_px:
+                continue
+            m = (np.abs(u - cx) < 0.6 * step) & (np.abs(v - cy) < 0.6 * step)
+            if m.sum() < 5:
+                continue
+            idx = np.flatnonzero(m)
+            pts.append(P[idx[np.argsort(rng_[idx])[(len(idx) - 1) // 4]]])  # el splat real del percentil 25
+            px_d.append(dd)
+    if len(pts) < 6:
+        raise RuntimeError("Hay muy poca superficie bajo el punto.")
+    pts, px_d = np.array(pts), np.array(px_d)
+    Vp = pts - cam_pos
+    tp = np.linalg.norm(Vp, axis=1)
+    rays = Vp / tp[:, None]
+    wts = np.exp(-0.5 * (px_d / (0.5 * radius_px)) ** 2)  # más peso cerca del punto
+    front = pts[np.argmin(px_d)]
+    front_t = np.linalg.norm(front - cam_pos)
+    # 2) plano: error medido a lo largo del rayo (ahí está el ruido); pasa por la superficie bajo el punto
+    #    y no se ve de canto (> ~3,5° respecto del rayo). RANSAC chico + ajuste en profundidad inversa.
+    k = 0.01  # ruido de la capa visible; con 2-3 % el letrero volvía a quedar oblicuo (medido)
+
+    def ray_err(n, a, X=pts, R_=rays):
+        return np.abs((X - a) @ n) / np.maximum(np.abs(R_ @ n), 1e-3)
+
+    ok = lambda n, a: ray_err(n, a, front[None], dn[None])[0] < 2 * k * front_t and abs(n @ dn) > 0.06
+    rng = np.random.default_rng(0)
+    best, plane = 0.0, None
+    for _ in range(300):
+        p0, p1, p2 = pts[rng.choice(len(pts), 3, replace=False)]
+        n = np.cross(p1 - p0, p2 - p0)
+        if np.linalg.norm(n) < 1e-9:
+            continue
+        n = n / np.linalg.norm(n)
+        if not ok(n, p0):
+            continue
+        score = float(wts[ray_err(n, p0) < k * tp].sum())
+        if score > best:
+            best, plane = score, (n, p0)
+    if plane is None:
+        raise RuntimeError("No hay una superficie clara bajo el punto: muévelo o cambia el radio.")
+    inl = ray_err(*plane) < k * tp
+    if inl.sum() >= 3:
+        # para un plano n·(p - cam) = d0: 1/t = (n/d0)·r̂, lineal en n/d0
+        sw = np.sqrt(wts[inl])
+        av = np.linalg.lstsq(rays[inl] * sw[:, None], sw / tp[inl], rcond=None)[0]
+        n, c = av / np.linalg.norm(av), cam_pos + av / np.dot(av, av)
+        if abs(n @ dn) <= 0.06 or not ok(n, c):
+            n, c = plane  # el ajuste fino se fue de canto o se alejó del punto: queda el de RANSAC
+    else:
+        n, c = plane
+    if upright:  # en el mundo nivelado: casi horizontal -> horizontal; si no, vertical (quita el cabeceo de ruido)
+        up = np.array([0.0, 1.0, 0.0])
+        n = up * np.sign(n @ up) if abs(n @ up) > 0.7 else (n - (n @ up) * up) / np.linalg.norm(n - (n @ up) * up)
+        c = front
+    n = n if n @ (cam_pos - c) > 0 else -n  # la cara mira a la cámara
     t = ((c - cam_pos) @ n) / (d @ n)
     if t <= 0:
         raise RuntimeError("El punto no apunta a la superficie.")
@@ -246,6 +316,6 @@ def card_at_point(P, cam_pos, cam_R, f_px, size, pick, spin=0.0):
     y = np.cross(n, x)
     a = np.radians(spin)
     x, y = np.cos(a) * x + np.sin(a) * y, -np.sin(a) * x + np.cos(a) * y
-    fit = float(np.mean(np.abs((P - c) @ n) < 0.02 * dist(P)))
+    fit = float(np.sum(wts * (ray_err(n, c) < k * tp)) / wts.sum())  # cerca del punto pesa más
     return dict(translate=(cam_pos + t * d).tolist(), rotate=euler_zxy(np.c_[x, y, n]),
                 distance=float(t * np.linalg.norm(d)), fit=fit)

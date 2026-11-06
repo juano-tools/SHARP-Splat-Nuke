@@ -62,11 +62,14 @@ Para corregir a mano usa **girar escena (°)** y **mover escena (m)**, que se su
 
 En la sección **card sobre una superficie**, aprieta **Nueva card**: se crea afuera un GeoCard pegado a la superficie bajo el **punto**. Con el panel del nodo abierto, arrastra el punto en el viewer (sobre una pared, el piso o un letrero) y la card lo sigue: queda sobre esa superficie y orientada con ella. En paredes, el borde de abajo queda horizontal. Una **grilla** dibujada sobre la salida del nodo muestra dónde queda la card (se apaga con **ver grilla**).
 
-- **radio de lectura (px)**: de cuánta superficie alrededor del punto se lee la orientación. Más grande es más estable; más chico sigue superficies pequeñas.
+- **radio de lectura (px)**: de cuánta superficie alrededor del punto se lee la orientación. Más grande es más estable; para objetos chicos (un letrero, un marco) conviene achicarlo hasta que cubra solo el objeto.
 - **tamaño (m)**: ancho y alto de la card. Al crearla, el nodo le da un tamaño que cubre el radio.
 - **girar en el plano (°)**: gira la card sobre su superficie.
+- **enderezar** (viene marcado): en el mundo nivelado, las paredes quedan exactamente verticales y los pisos exactamente horizontales. Quita el cabeceo que deja el ruido de profundidad. Desmárcalo para superficies inclinadas, como la carrocería de un auto.
 
-El label de la card muestra su tamaño, a qué distancia está y qué parte de la superficie leída cae en el plano; si ese porcentaje es bajo, el radio está mezclando superficies. La última card creada es la que sigue al punto; con otra **Nueva card**, la anterior queda fija.
+La orientación sale de la superficie visible bajo el punto (la capa de adelante de los splats), así que un objeto que tapa a otro gana aunque sea más chico. Si el punto cae en un borde entre dos superficies, la card se pega a la de adelante. El label de la card muestra su tamaño y a qué distancia está. La última card creada es la que sigue al punto; con otra **Nueva card**, la anterior queda fija.
+
+La grilla solo se dibuja cuando el nodo renderiza desde la cámara de SHARP; con otra cámara en `cam`, se apaga.
 
 ### Aislar un objeto
 

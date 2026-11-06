@@ -18,7 +18,7 @@ from . import __version__, core
 GREEN, AMBER = "#7fd1a8", "#f2a65a"  # los colores del ícono
 
 KEEP = ("plate", "cam", "Output1")  # lo único del interior que Generar no borra
-CARD_KNOBS = ("sharp_pick", "sharp_card_radius", "sharp_card_size", "sharp_card_spin")  # mueven la card viva
+CARD_KNOBS = ("sharp_pick", "sharp_card_radius", "sharp_card_size", "sharp_card_spin", "sharp_card_upright")  # mueven la card viva
 EXPORTS = ["Cámara", "Cámara + splats", "Cámara + splats + proxy", "Escena completa (con SplatRender)"]
 
 # Ajustes de SharpHDR_Predict: nombre visible, descripción y rango (los min/max de SHARP-HDR).
@@ -164,6 +164,10 @@ def _add_knobs(g):
     k = add(nuke.Double_Knob("sharp_card_spin", "girar en el plano (°)"),
             tip="Gira la card sobre su superficie. En 0, en una pared el borde de abajo queda horizontal.")
     k.setRange(-180, 180)
+    add(nuke.Boolean_Knob("sharp_card_upright", "enderezar"),
+        tip="Paredes verticales y pisos horizontales exactos (en el mundo nivelado): quita el cabeceo que deja\n"
+            "el ruido de profundidad. Desmárcalo para superficies inclinadas, como la carrocería de un auto.")
+    g["sharp_card_upright"].setValue(True)
     add(nuke.Boolean_Knob("sharp_card_grid", "ver grilla"),
         tip="Dibuja la card viva como una grilla sobre la salida del nodo.")
     g["sharp_card_grid"].setValue(True)
@@ -373,19 +377,19 @@ def _build(g, nk, job):
         sr.setInput(0, bg)
         sr.setInput(1, cam)
         sr.setInput(2, gt)
-        # grilla de la card viva sobre el render (3D clásico: Card + ScanlineRender con la misma cámara)
+        # grilla de la card viva: textura llevada en 2D a las esquinas proyectadas (un plano en perspectiva
+        # es un corner pin exacto). La Card2 + ScanlineRender clásica no dibujaba nada en 17.1.
         tex = nuke.nodes.Constant(channels="rgba", format="square_1K")
-        grid = nuke.nodes.Grid(number=8, size=4, color=[0.95, 0.6, 0.25, 1])
+        grid = nuke.nodes.Grid(number=8, size=6)
+        grid["color"].setValue([0.95, 0.6, 0.25, 1])  # como argumento al crear el nodo, Nuke lo ignora
         grid.setInput(0, tex)
-        pc = nuke.nodes.Card2(name="SHARP_card_grilla", image_aspect=False, rot_order="ZXY", disable=True)
-        pc.setInput(0, grid)
-        slr = nuke.nodes.ScanlineRender(name="SHARP_grilla_render")
-        slr.setInput(0, bg)
-        slr.setInput(1, pc)
-        slr.setInput(2, cam)
+        pin = nuke.nodes.CornerPin2D(name="SHARP_card_grilla", disable=True)
+        for i, xy in enumerate(((0, 0), (1024, 0), (1024, 1024), (0, 1024)), 1):
+            pin["from%d" % i].setValue(list(xy))
+        pin.setInput(0, grid)
         mrg = nuke.nodes.Merge2(name="SHARP_grilla_over", mix=0.8)
         mrg.setInput(0, sr)
-        mrg.setInput(1, slr)
+        mrg.setInput(1, pin)
         mrg["disable"].setExpression("!parent.sharp_card_grid || SHARP_card_grilla.disable")
         out.setInput(0, mrg)
         for n in nuke.allNodes():
@@ -455,8 +459,10 @@ def update_card(g, quiet=True):
     job = _job(g)
     with g:
         cam, ax, grid = nuke.toNode(job.get("cam", "")), nuke.toNode("SHARP_mundo"), nuke.toNode("SHARP_card_grilla")
+    if grid is not None and grid.Class() != "CornerPin2D":
+        grid = None  # nodo de la 0.7 (Card2 + ScanlineRender, no dibujaba): la grilla nueva llega con Generar
     card = nuke.toNode(job.get("card", "")) if job.get("card") else None
-    if card is None or cam is None or ax is None:
+    if card is None or cam is None or ax is None or g.input(0) is None:
         return None
     W, H = g.input(0).width(), g.input(0).height()
     f_px = cam["focal"].value() / cam["haperture"].value() * W
@@ -466,20 +472,28 @@ def update_card(g, quiet=True):
     idx = idx[(u[idx] - px) ** 2 + (v[idx] - py) ** 2 < r * r]
     R, s, T = core.rot_zxy(*ax["rotate"].value()), ax["uniform_scale"].value(), np.array(ax["translate"].value())
     try:
-        fit = core.card_at_point((s * P[idx]) @ R.T + T, T, R, f_px, (W, H), (px, py), g["sharp_card_spin"].value())
+        upright = g["sharp_card_upright"].value() if "sharp_card_upright" in g.knobs() else True
+        fit = core.card_at_point((s * P[idx]) @ R.T + T, T, R, f_px, (W, H), (px, py), g["sharp_card_spin"].value(), r,
+                                 upright)
     except RuntimeError as exc:
         if not quiet:
             nuke.message(str(exc))
         card["label"].setValue("sin ajustar: %s" % exc)
         return None
     w, h = g["sharp_card_size"].value()
-    for n in filter(None, (card, grid)):
-        n["translate"].setValue(fit["translate"])
-        n["rotate"].setValue(list(fit["rotate"]))
-        n["scaling"].setValue([w, h, 1])
+    card["translate"].setValue(fit["translate"])
+    card["rotate"].setValue(list(fit["rotate"]))
+    card["scaling"].setValue([w, h, 1])
     if grid is not None:
-        grid["disable"].setValue(False)
-    card["label"].setValue("%.2f x %.2f m, a %.1f m, %d%% en el plano" % (w, h, fit["distance"], 100 * fit["fit"]))
+        # esquinas de la card (local ±w/2, ±h/2) proyectadas por la cámara de SHARP, en el orden de from1..4
+        Rc, c = core.rot_zxy(*fit["rotate"]), np.array(fit["translate"])
+        corners = [R.T @ (c + Rc @ np.array([sx * w / 2, sy * h / 2, 0]) - T) for sx, sy in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+        visible = g.input(1) is None and all(d[2] < 0 for d in corners)
+        if visible:
+            for i, d in enumerate(corners, 1):
+                grid["to%d" % i].setValue([W / 2.0 + f_px * d[0] / -d[2], H / 2.0 + f_px * d[1] / -d[2]])
+        grid["disable"].setValue(not visible)
+    card["label"].setValue("%.2f x %.2f m, a %.1f m" % (w, h, fit["distance"]))
     return dict(fit, f_px=f_px)
 
 
@@ -489,11 +503,9 @@ def _wire_cam(g):
     with g:
         sr, own = nuke.toNode("SplatRender"), nuke.toNode(job.get("cam", ""))
         if sr is not None and own is not None:
-            use = nuke.toNode("cam") if g.input(1) is not None else own
-            sr.setInput(1, use)
-            slr = nuke.toNode("SHARP_grilla_render")
-            if slr is not None:
-                slr.setInput(2, use)
+            sr.setInput(1, nuke.toNode("cam") if g.input(1) is not None else own)
+    if job.get("card"):
+        update_card(g)  # la grilla solo calza desde la cámara de SHARP: se apaga con otra cámara
 
 
 # --- escena -----------------------------------------------------------------------------------

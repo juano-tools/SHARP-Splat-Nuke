@@ -52,6 +52,22 @@ ref = px(g)
 print("RESULT formato", g.width(), g.height(), "render", ref, "plate", px(read))
 assert (g.width(), g.height()) == (read.width(), read.height())
 
+with g:  # valores pasados como argumento al crear nodos: Nuke ignora algunos en silencio
+    kw = {"bg": nuke.allNodes("Multiply")[0]["value"].value(), "mix": nuke.toNode("SHARP_grilla_over")["mix"].value(),
+          "grid": nuke.allNodes("Grid")[0]["color"].value(), "hold": nuke.allNodes("FrameHold")[0]["first_frame"].value()}
+print("RESULT knobs al crear:", kw)
+assert kw["bg"] in (0, [0, 0, 0, 0]) and abs(kw["mix"] - 0.8) < 1e-6 and kw["grid"][3] == 1 and kw["hold"] == first
+
+# el render calza con el plate (sin corrimiento): todo lo de las cards depende de esto
+import random  # noqa: E402
+random.seed(1)
+probe = [(random.uniform(200, 3640), random.uniform(1000, 1160)) for _ in range(150)]
+err = {dy: sum(abs(g.sample("rgba.green", x, y) - read.sample("rgba.green", x, y + dy)) for x, y in probe)
+       for dy in list(range(-96, 97, 8)) + [-840, 840]}
+best = min(err, key=err.get)
+print("RESULT corrimiento render/plate:", best, "px (error %.3f vs %.3f a +-840)" % (err[best], min(err[840], err[-840])))
+assert best == 0, "el render tiene que calzar con el plate"
+
 g["sharp_cam_height"].setValue(1.7)
 node.orient(g)
 assert px(g) == ref, ("la escala cambio el render", px(g), ref)
@@ -83,12 +99,42 @@ g["sharp_card_spin"].setValue(30)
 node.update_card(g)
 assert abs(core.rot_zxy(*card["rotate"].value())[1, 0]) > 0.3, "spin gira en el plano"
 g["sharp_card_spin"].setValue(0)
+node.update_card(g)
+
+# el GeoCard real (puntos del USD) visto por la cámara de SHARP: centro en el punto, esquinas = la grilla
+from pxr import Usd, UsdGeom  # noqa: E402
 with g:
-    grid = nuke.toNode("SHARP_card_grilla")
+    grid, ax = nuke.toNode("SHARP_card_grilla"), nuke.toNode("SHARP_mundo")
+    scam = nuke.toNode(node._job(g)["cam"])
     assert not grid["disable"].value() and not nuke.toNode("SHARP_grilla_over")["disable"].value()
-    assert not nuke.toNode("SHARP_grilla_render").hasError()
-assert grid["translate"].value() == card["translate"].value()
-print("RESULT grilla con la card:", [round(v, 2) for v in grid["translate"].value()])
+Rw, Tw = core.rot_zxy(*ax["rotate"].value()), np.array(ax["translate"].value())
+W, H = g.width(), g.height()
+f_px = scam["focal"].value() / scam["haperture"].value() * W
+
+
+def proj(p):
+    d = Rw.T @ (np.asarray(p)[:3] - Tw)
+    return np.array([W / 2 + f_px * d[0] / -d[2], H / 2 + f_px * d[1] / -d[2]])
+
+
+prim = next(p for p in card.getStage().Traverse() if p.IsA(UsdGeom.Mesh))
+lp = np.array(UsdGeom.Mesh(prim).GetPointsAttr().Get())
+wp = np.c_[lp, np.ones(len(lp))] @ np.array(UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(Usd.TimeCode.Default()))
+usd = [proj(wp[np.argmin(lp[:, 0] * sx + lp[:, 1] * sy)]) for sx, sy in ((1, 1), (-1, 1), (-1, -1), (1, -1))]
+pin = [np.array(grid["to%d" % i].value()) for i in range(1, 5)]
+center = proj(wp[:, :3].mean(0))
+print("RESULT GeoCard visto: centro", center.round(1), "punto", g["sharp_pick"].value(),
+      "esquinas USD vs grilla", max(np.linalg.norm(a - b) for a, b in zip(usd, pin)).round(3))
+assert np.linalg.norm(center - g["sharp_pick"].value()) < 1, "el centro de la card tiene que caer en el punto"
+assert max(np.linalg.norm(a - b) for a, b in zip(usd, pin)) < 0.5, "la grilla tiene que calzar con la card"
+# lo que dibuja la grilla cae dentro de las esquinas
+xs, ys = [p[0] for p in pin], [p[1] for p in pin]
+hits = [(x, y) for x in np.arange(min(xs) - 40, max(xs) + 40, 6) for y in np.arange(min(ys) - 40, max(ys) + 40, 6)
+        if grid.sample("rgba.alpha", x, y) > 0.3]
+hx, hy = zip(*hits)
+print("RESULT grilla dibujada: bbox", (min(hx), min(hy), max(hx), max(hy)), "esquinas", (min(xs), min(ys), max(xs), max(ys)))
+assert min(hx) > min(xs) - 10 and max(hx) < max(xs) + 10 and min(hy) > min(ys) - 10 and max(hy) < max(ys) + 10
+assert max(hx) - min(hx) > 0.8 * (max(xs) - min(xs)), "la grilla tiene que cubrir la card"
 fixed = card
 card2 = node.create_card(g)  # la nueva pasa a ser la viva; la anterior queda fija
 g["sharp_pick"].setValue([450, 1150])
