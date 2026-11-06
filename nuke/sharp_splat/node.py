@@ -18,7 +18,7 @@ from . import __version__, core
 GREEN, AMBER = "#7fd1a8", "#f2a65a"  # los colores del ícono
 
 KEEP = ("plate", "cam", "Output1")  # lo único del interior que Generar no borra
-CORNERS = ("abajo a la izquierda", "abajo a la derecha", "arriba a la derecha", "arriba a la izquierda")
+CARD_KNOBS = ("sharp_pick", "sharp_card_radius", "sharp_card_size", "sharp_card_spin")  # mueven la card viva
 EXPORTS = ["Cámara", "Cámara + splats", "Cámara + splats + proxy", "Escena completa (con SplatRender)"]
 
 # Ajustes de SharpHDR_Predict: nombre visible, descripción y rango (los min/max de SHARP-HDR).
@@ -150,20 +150,36 @@ def _add_knobs(g):
         tip="Se suma a la posición de la escena. Y sube o baja el piso.")
     section("sharp_grp_card", "card sobre una superficie", closed=False)
     add(nuke.Text_Knob("sharp_card_help", "",
-                       "<span style='color:#aaa'>Aprieta Nueva card y mueve las 4 esquinas en el viewer alrededor<br>"
-                       "de una superficie del plate (pared, piso, letrero): la card se ajusta sola.</span>"))
-    for i, where in enumerate(CORNERS, 1):
-        add(nuke.XY_Knob("sharp_card_%d" % i, "esquina %d" % i),
-            tip="Esquina %s de la región, en píxeles del plate. Se mueve en el viewer." % where)
+                       "<span style='color:#aaa'>Aprieta Nueva card y arrastra el punto en el viewer sobre una superficie<br>"
+                       "del plate (pared, piso, letrero): la card se pega a ella. La grilla muestra dónde queda.</span>"))
+    add(nuke.XY_Knob("sharp_pick", "punto"),
+        tip="Píxel del plate donde se pega la card. Se arrastra en el viewer con el panel abierto.")
+    k = add(nuke.Double_Knob("sharp_card_radius", "radio de lectura (px)"),
+            tip="Alrededor del punto, de dónde se lee la superficie para orientar la card.\n"
+                "Más grande = más estable; más chico = sigue superficies pequeñas.")
+    k.setRange(20, 600)
+    k.setValue(120)
+    add(nuke.WH_Knob("sharp_card_size", "tamaño (m)"), tip="Ancho y alto de la card, en metros.")
+    g["sharp_card_size"].setValue([1, 1])
+    k = add(nuke.Double_Knob("sharp_card_spin", "girar en el plano (°)"),
+            tip="Gira la card sobre su superficie. En 0, en una pared el borde de abajo queda horizontal.")
+    k.setRange(-180, 180)
+    add(nuke.Boolean_Knob("sharp_card_grid", "ver grilla"),
+        tip="Dibuja la card viva como una grilla sobre la salida del nodo.")
+    g["sharp_card_grid"].setValue(True)
     add(nuke.PyScript_Knob("sharp_card", "<span style='color:%s'><b>Nueva card</b></span>" % AMBER, _cmd("create_card")),
-        tip="Crea afuera un GeoCard sobre la superficie que se ve dentro de la región.<br>"
-            "Mientras sea la última card creada, sigue a las esquinas; con otra Nueva card, la anterior queda fija.")
+        newline=False,
+        tip="Crea afuera un GeoCard pegado a la superficie bajo el punto, con un tamaño inicial según el radio.\n"
+            "La última card creada sigue al punto; con otra Nueva card, la anterior queda fija.")
     section(None, None)
     add(nuke.Enumeration_Knob("sharp_export_what", "sacar", EXPORTS),
         tip="Crea afuera copias en el mundo nivelado, con los valores fijos, para manipularlas.\n"
             "La cámara se puede animar y conectar a la entrada 'cam' para ver la escena desde otro lado.")
     add(nuke.PyScript_Knob("sharp_export", "<span style='color:%s'><b>Crear</b></span>" % AMBER, _cmd("export")), newline=False,
         tip="Crea lo elegido en 'sacar', a la derecha del nodo.")
+    add(nuke.Boolean_Knob("sharp_export_rec709", "splats en Rec.709 (previs)"),
+        tip="Los splats que salen usan una copia del PLY con el color en Rec.709 de pantalla, para verlos\n"
+            "en el viewer 3D como en el monitor. Solo previs: ese color ya no es lineal y no sirve para render.")
     hidden = nuke.String_Knob("sharp_job", "")
     hidden.setFlag(nuke.INVISIBLE)
     g.addKnob(hidden)
@@ -185,7 +201,7 @@ def create():
         g.setInput(0, sel[-1])
         g.setXYpos(sel[-1].xpos(), sel[-1].ypos() + 120)
         fill_lens(g)
-        _default_corners(g)
+        _default_pick(g)
     for n in nuke.selectedNodes():
         n.setSelected(False)
     g.setSelected(True)
@@ -203,7 +219,7 @@ def knob_changed():
             orient(g)
         elif k.name() in ("sharp_cam_height", "sharp_adj_rot", "sharp_adj_pos"):
             apply_orient(g)
-        elif k.name().startswith("sharp_card_") and _job(g).get("card"):
+        elif k.name() in CARD_KNOBS and _job(g).get("card"):
             update_card(g)
     except ValueError:
         pass  # llega con el nodo muriendo al cerrar el script
@@ -357,29 +373,39 @@ def _build(g, nk, job):
         sr.setInput(0, bg)
         sr.setInput(1, cam)
         sr.setInput(2, gt)
-        out.setInput(0, sr)
+        # grilla de la card viva sobre el render (3D clásico: Card + ScanlineRender con la misma cámara)
+        tex = nuke.nodes.Constant(channels="rgba", format="square_1K")
+        grid = nuke.nodes.Grid(number=8, size=4, color=[0.95, 0.6, 0.25, 1])
+        grid.setInput(0, tex)
+        pc = nuke.nodes.Card2(name="SHARP_card_grilla", image_aspect=False, rot_order="ZXY", disable=True)
+        pc.setInput(0, grid)
+        slr = nuke.nodes.ScanlineRender(name="SHARP_grilla_render")
+        slr.setInput(0, bg)
+        slr.setInput(1, pc)
+        slr.setInput(2, cam)
+        mrg = nuke.nodes.Merge2(name="SHARP_grilla_over", mix=0.8)
+        mrg.setInput(0, sr)
+        mrg.setInput(1, slr)
+        mrg["disable"].setExpression("!parent.sharp_card_grid || SHARP_card_grilla.disable")
+        out.setInput(0, mrg)
         for n in nuke.allNodes():
             nuke.autoplace(n)
     job["cam"] = cam.name()
     _save_job(g, job)
     _wire_cam(g)
-    _default_corners(g)
+    _default_pick(g)
     orient(g)
 
 
-def _default_corners(g):
-    """Región inicial: el tercio central del plate, solo si las esquinas siguen en 0."""
-    if "sharp_card_1" not in g.knobs() or g.input(0) is None:
-        return
-    if any(g["sharp_card_%d" % i].value() != [0.0, 0.0] for i in range(1, 5)):
-        return
-    W, H = g.input(0).width(), g.input(0).height()
-    for i, (fx, fy) in enumerate(((1, 1), (2, 1), (2, 2), (1, 2)), 1):
-        g["sharp_card_%d" % i].setValue([W * fx / 3.0, H * fy / 3.0])
+def _default_pick(g):
+    """El punto empieza en el centro del plate, solo si sigue en 0."""
+    if "sharp_pick" in g.knobs() and g.input(0) is not None and g["sharp_pick"].value() == [0.0, 0.0]:
+        g["sharp_pick"].setValue([g.input(0).width() / 2.0, g.input(0).height() / 2.0])
 
 
 def create_card(g):
-    """Botón Nueva card. Crea un GeoCard afuera y lo deja como la card que sigue a las esquinas."""
+    """Botón Nueva card. Crea un GeoCard afuera, lo deja como la card que sigue al punto y le da un
+    tamaño inicial que cubre el radio de lectura."""
     job = _job(g)
     if not job.get("cam"):
         nuke.message("Primero aprieta Generar.")
@@ -392,9 +418,15 @@ def create_card(g):
         c.setXYpos(g.xpos() + 200, g.ypos() + 60)
     job["card"] = c.name()
     _save_job(g, job)
-    if not update_card(g, quiet=False):
+    fit = update_card(g, quiet=False)
+    if not fit:
         nuke.delete(c)
+        job.pop("card")
+        _save_job(g, job)
         return None
+    side = 2 * g["sharp_card_radius"].value() * fit["distance"] / fit["f_px"]
+    g["sharp_card_size"].setValue([side, side])
+    update_card(g)  # en la GUI el knobChanged ya lo hizo; sin GUI hace falta
     return c
 
 
@@ -416,37 +448,39 @@ def _projected(ply, f_px, W, H):
 
 
 def update_card(g, quiet=True):
-    """Ajusta la card viva a la región. Toma los splats que la cámara de SHARP ve dentro de las esquinas
-    (el pase P de SplatRender 17.1v2 sale corrido (W-H)/2 en vertical: no se usa), los lleva al mundo,
-    ajusta un plano y lanza los rayos de las esquinas. quiet = el error va al label de la card."""
+    """Pega la card viva (y la grilla) a la superficie bajo el punto. Toma los splats que la cámara de SHARP
+    ve dentro del radio (el pase P de SplatRender 17.1v2 sale corrido (W-H)/2 en vertical: no se usa),
+    los lleva al mundo y ajusta un plano. quiet = el error va al label de la card. Devuelve el ajuste o None."""
     import numpy as np
     job = _job(g)
     with g:
-        cam, ax = nuke.toNode(job.get("cam", "")), nuke.toNode("SHARP_mundo")
+        cam, ax, grid = nuke.toNode(job.get("cam", "")), nuke.toNode("SHARP_mundo"), nuke.toNode("SHARP_card_grilla")
     card = nuke.toNode(job.get("card", "")) if job.get("card") else None
     if card is None or cam is None or ax is None:
-        return False
+        return None
     W, H = g.input(0).width(), g.input(0).height()
     f_px = cam["focal"].value() / cam["haperture"].value() * W
     u, v, P = _projected(job["ply"], f_px, W, H)
-    quad = [tuple(g["sharp_card_%d" % i].value()) for i in range(1, 5)]
-    xs, ys = zip(*quad)
-    box = (u >= min(xs)) & (u <= max(xs)) & (v >= min(ys)) & (v <= max(ys))
-    idx = np.flatnonzero(box)
-    idx = idx[core.inside_quad(u[idx], v[idx], quad)]
+    (px, py), r = g["sharp_pick"].value(), g["sharp_card_radius"].value()
+    idx = np.flatnonzero((np.abs(u - px) < r) & (np.abs(v - py) < r))
+    idx = idx[(u[idx] - px) ** 2 + (v[idx] - py) ** 2 < r * r]
     R, s, T = core.rot_zxy(*ax["rotate"].value()), ax["uniform_scale"].value(), np.array(ax["translate"].value())
     try:
-        fit = core.card_from_quad((s * P[idx]) @ R.T + T, T, R, f_px, (W, H), quad)
+        fit = core.card_at_point((s * P[idx]) @ R.T + T, T, R, f_px, (W, H), (px, py), g["sharp_card_spin"].value())
     except RuntimeError as exc:
         if not quiet:
             nuke.message(str(exc))
         card["label"].setValue("sin ajustar: %s" % exc)
-        return False
-    card["translate"].setValue(fit["translate"])
-    card["rotate"].setValue(list(fit["rotate"]))
-    card["scaling"].setValue([fit["size"][0], fit["size"][1], 1])
-    card["label"].setValue("%.2f x %.2f m, %d%% en el plano" % (fit["size"][0], fit["size"][1], 100 * fit["fit"]))
-    return True
+        return None
+    w, h = g["sharp_card_size"].value()
+    for n in filter(None, (card, grid)):
+        n["translate"].setValue(fit["translate"])
+        n["rotate"].setValue(list(fit["rotate"]))
+        n["scaling"].setValue([w, h, 1])
+    if grid is not None:
+        grid["disable"].setValue(False)
+    card["label"].setValue("%.2f x %.2f m, a %.1f m, %d%% en el plano" % (w, h, fit["distance"], 100 * fit["fit"]))
+    return dict(fit, f_px=f_px)
 
 
 def _wire_cam(g):
@@ -455,7 +489,11 @@ def _wire_cam(g):
     with g:
         sr, own = nuke.toNode("SplatRender"), nuke.toNode(job.get("cam", ""))
         if sr is not None and own is not None:
-            sr.setInput(1, nuke.toNode("cam") if g.input(1) is not None else own)
+            use = nuke.toNode("cam") if g.input(1) is not None else own
+            sr.setInput(1, use)
+            slr = nuke.toNode("SHARP_grilla_render")
+            if slr is not None:
+                slr.setInput(2, use)
 
 
 # --- escena -----------------------------------------------------------------------------------
@@ -539,6 +577,10 @@ def export(g, what=None):
         gt = None
         if "splats" in what or full:
             gr = _clone(geo, base + "_splats1")
+            if g["sharp_export_rec709"].value() if "sharp_export_rec709" in g.knobs() else False:
+                ws = nuke.root()["workingSpaceLUT"].value().lower() if "workingSpaceLUT" in nuke.root().knobs() else ""
+                gr["file_path"].setValue(core.preview_ply(geo["file_path"].value(), acescg="acescg" in ws or "ap1" in ws))
+                gr["label"].setValue("Rec.709 (solo previs)")
             gt = nuke.nodes.GeoTransform()
             gt.setName(base + "_splats_mundo1", uncollide=True)
             gt.setInput(0, gr)

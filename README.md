@@ -42,6 +42,8 @@ En **sacar**, elige qué quieres y aprieta **Crear**, como en el Export del Came
 
 Lo que sale queda en el mundo nivelado, con valores fijos y sin enlaces al nodo, así que lo puedes mover, combinar o borrar sin tocar el nodo.
 
+Si en el viewer 3D los splats se ven muy oscuros, marca **splats en Rec.709 (previs)** antes de apretar Crear: los splats que salen usan una copia del PLY con el color convertido a Rec.709 de pantalla. Es solo para mirar: ese color ya no es lineal y no sirve para render.
+
 ### Ver desde otra cámara
 
 Saca la **Cámara**, duplícala o anímala y conéctala a la entrada `cam`. Mientras `cam` tenga algo conectado, el nodo renderiza desde esa cámara. Los movimientos chicos se ven bien; si la cámara se aleja mucho, aparece lo que el plate nunca mostró (estirado o vacío).
@@ -58,9 +60,13 @@ Para corregir a mano usa **girar escena (°)** y **mover escena (m)**, que se su
 
 ### Cards sobre una superficie
 
-En la sección **card sobre una superficie**, aprieta **Nueva card**: se crea afuera un GeoCard. Con el panel del nodo abierto, mueve las 4 esquinas en el viewer alrededor de una superficie del plate (una pared, el piso, un letrero). La card se ajusta sola mientras arrastras: queda sobre esa superficie, orientada con ella y del tamaño de la región, en el mundo del nodo. El label de la card muestra su tamaño en metros y qué parte de los splats de la región cae en el plano; si es bajo, la región mezcla superficies.
+En la sección **card sobre una superficie**, aprieta **Nueva card**: se crea afuera un GeoCard pegado a la superficie bajo el **punto**. Con el panel del nodo abierto, arrastra el punto en el viewer (sobre una pared, el piso o un letrero) y la card lo sigue: queda sobre esa superficie y orientada con ella. En paredes, el borde de abajo queda horizontal. Una **grilla** dibujada sobre la salida del nodo muestra dónde queda la card (se apaga con **ver grilla**).
 
-La última card creada es la que sigue a las esquinas. Si aprietas **Nueva card** otra vez, la anterior queda fija y la nueva pasa a seguir las esquinas. Las cards también se reajustan si cambias la nivelación, el giro o la posición de la escena.
+- **radio de lectura (px)**: de cuánta superficie alrededor del punto se lee la orientación. Más grande es más estable; más chico sigue superficies pequeñas.
+- **tamaño (m)**: ancho y alto de la card. Al crearla, el nodo le da un tamaño que cubre el radio.
+- **girar en el plano (°)**: gira la card sobre su superficie.
+
+El label de la card muestra su tamaño, a qué distancia está y qué parte de la superficie leída cae en el plano; si ese porcentaje es bajo, el radio está mezclando superficies. La última card creada es la que sigue al punto; con otra **Nueva card**, la anterior queda fija.
 
 ### Aislar un objeto
 

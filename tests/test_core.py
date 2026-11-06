@@ -53,36 +53,54 @@ def test_euler_roundtrip():
     assert np.allclose(core.rot_zxy(30, 40, 50)[:, 0], [0.7386, 0.6634, -0.1198], atol=1e-4)
 
 
-def test_inside_quad():
-    q = [(0, 0), (10, 0), (10, 5), (0, 5)]
-    x, y = np.array([5, 11, 5, -1, 9.9]), np.array([2, 2, 6, 1, 4.9])
-    assert core.inside_quad(x, y, q).tolist() == [True, False, False, False, True]
-
-
-def test_card_from_quad():
-    """Pared inclinada vista por una cámara girada: la card tiene que caer en la pared, del tamaño de la región."""
+def test_card_at_point():
+    """Pared girada y un piso, vistos por una cámara girada: centro en la superficie, normal correcta,
+    borde de abajo horizontal en la pared, y spin gira en el plano."""
     rng = np.random.default_rng(3)
     W, H, f = 3840, 2160, 3000.0
     cam_R, cam_pos = core.rot_zxy(5, 20, -2), np.array([1.0, 1.6, 4.0])
-    n_true = core.rot_zxy(0, 35, 0) @ np.array([0, 0, 1.0])  # pared girada 35° en Y
-    p0 = cam_pos + cam_R @ np.array([0, 0, -6.0])            # a 6 m delante de la cámara
-    quad = [(1500, 800), (2400, 850), (2350, 1500), (1450, 1400)]
 
-    def hit(u, v):
-        d = cam_R @ np.array([(u - W / 2) / f, (v - H / 2) / f, -1])
-        return cam_pos + ((p0 - cam_pos) @ n_true) / (d @ n_true) * d
+    def surface(n_true, p0, pick, r=150):
+        def hit(u, v):
+            d = cam_R @ np.array([(u - W / 2) / f, (v - H / 2) / f, -1])
+            return cam_pos + ((p0 - cam_pos) @ n_true) / (d @ n_true) * d
+        ang = rng.uniform(0, 2 * np.pi, 2000)
+        rad = r * np.sqrt(rng.uniform(0, 1, 2000))
+        P = np.array([hit(pick[0] + a * np.cos(b), pick[1] + a * np.sin(b)) for a, b in zip(rad, ang)])
+        P += rng.normal(0, 0.005, P.shape)
+        P[:30] += cam_R @ np.array([0, 0, -3.0])  # algo de fondo detrás
+        return P, hit(*pick)
 
-    u, v = rng.uniform(1400, 2450, 3000), rng.uniform(750, 1550, 3000)
-    m = core.inside_quad(u, v, quad)
-    P = np.array([hit(a, b) for a, b in zip(u[m], v[m])]) + rng.normal(0, 0.005, (m.sum(), 3))
-    P[:40] += cam_R @ np.array([0, 0, -3.0])  # algo de fondo detrás de la pared
-    card = core.card_from_quad(P, cam_pos, cam_R, f, (W, H), quad)
-    C = np.array([hit(a, b) for a, b in quad])
-    assert np.allclose(card["corners"], C, atol=0.03), (card["corners"], C)
-    n = core.rot_zxy(*card["rotate"])[:, 2]
-    assert n @ n_true > 0.999 and n @ (cam_pos - p0) > 0, n  # normal de la pared, hacia la cámara
-    w = np.linalg.norm((C[1] + C[2]) / 2 - (C[0] + C[3]) / 2)
-    assert abs(card["size"][0] - w) < 0.05 and card["fit"] > 0.9, card
+    n_wall = core.rot_zxy(0, 35, 0) @ np.array([0, 0, 1.0])
+    P, center = surface(n_wall, cam_pos + cam_R @ np.array([0, 0, -6.0]), (2000, 1100))
+    card = core.card_at_point(P, cam_pos, cam_R, f, (W, H), (2000, 1100))
+    R = core.rot_zxy(*card["rotate"])
+    assert np.allclose(card["translate"], center, atol=0.02), (card["translate"], center)
+    assert R[:, 2] @ n_wall > 0.999 and abs(R[1, 0]) < 1e-6 and card["fit"] > 0.9, (R, card)  # borde horizontal
+    spun = core.rot_zxy(*core.card_at_point(P, cam_pos, cam_R, f, (W, H), (2000, 1100), spin=30)["rotate"])
+    assert abs(np.degrees(np.arccos(np.clip(spun[:, 0] @ R[:, 0], -1, 1))) - 30) < 1e-6
+
+    P, center = surface(np.array([0, 1.0, 0]), np.array([0, 0, 0.0]), (1900, 300))  # piso en Y=0
+    card = core.card_at_point(P, cam_pos, cam_R, f, (W, H), (1900, 300))
+    assert abs(card["translate"][1]) < 0.02 and core.rot_zxy(*card["rotate"])[1, 2] > 0.999, card
+
+
+def test_preview_ply(tmp):
+    """Gris medio ACEScg 0.18 -> Rec.709 de pantalla ~0.49; un rojo HDR se recorta a 1; el resto no cambia."""
+    path = os.path.join(tmp, "c.ply")
+    C0 = core.SH_C0
+    dc = lambda rgb: [(c - 0.5) / C0 for c in rgb]
+    pts = np.array([(0, 0, -1, *dc((0.18, 0.18, 0.18)), 1.0), (0, 0, -2, *dc((8.0, 0.0, 0.0)), 1.0)],
+                   dtype=[(n, "<f4") for n in ("x", "y", "z", "f_dc_0", "f_dc_1", "f_dc_2", "opacity")])
+    with open(path, "wb") as f:
+        f.write(b"ply\nformat binary_little_endian 1.0\nelement vertex 2\n" +
+                b"".join(b"property float %s\n" % n.encode() for n in pts.dtype.names) + b"end_header\n")
+        pts.tofile(f)
+    with open(core.preview_ply(path), "rb") as f:
+        b = np.frombuffer(f.read().split(b"end_header\n", 1)[1], dtype=pts.dtype)
+    col = 0.5 + C0 * np.stack([b["f_dc_%d" % i] for i in range(3)], 1)
+    assert np.allclose(col[0], 0.18 ** (1 / 2.4), atol=0.01) and abs(col[1, 0] - 1) < 1e-4, col
+    assert b["z"].tolist() == [-1, -2] and b["opacity"].tolist() == [1, 1]
 
 
 def test_equiv_focal():

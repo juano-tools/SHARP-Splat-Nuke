@@ -124,6 +124,39 @@ def read_ply(path):
     return np.stack([a["x"], a["y"], a["z"]], 1).astype(np.float64), a["opacity"].astype(np.float64)
 
 
+SH_C0 = 0.28209479177387814  # color = 0.5 + SH_C0 * f_dc
+ACESCG_TO_REC709 = [[1.70505, -0.62179, -0.08326], [-0.13026, 1.14080, -0.01055], [-0.02400, -0.12897, 1.15297]]
+
+
+def preview_ply(src, acescg=True):
+    """Copia del PLY con el color en Rec.709 de pantalla (gamma 2.4, recortado a 0-1), para ver los splats
+    en el viewer 3D como en el monitor. Solo previs: el color deja de ser lineal. Se crea una vez por PLY."""
+    import numpy as np
+    dst = src[:-4] + "_rec709.ply"
+    if os.path.isfile(dst) and os.path.getmtime(dst) >= os.path.getmtime(src):
+        return dst
+    types = {"float": "<f4", "double": "<f8", "uchar": "u1", "int": "<i4"}
+    with open(src, "rb") as f:
+        header = b""
+        while not header.rstrip().endswith(b"end_header"):
+            line = f.readline()
+            if not line:
+                raise RuntimeError("PLY sin end_header: %s" % src)
+            header += line
+        props = [l.split()[1:] for l in header.decode("ascii").splitlines() if l.startswith("property")]
+        a = np.fromfile(f, dtype=[(n, types[t]) for t, n in props])
+    lin = 0.5 + SH_C0 * np.stack([a["f_dc_%d" % i] for i in range(3)], 1).astype(np.float64)
+    if acescg:
+        lin = lin @ np.array(ACESCG_TO_REC709).T
+    disp = np.clip(lin, 0, 1) ** (1 / 2.4)
+    for i in range(3):
+        a["f_dc_%d" % i] = (disp[:, i] - 0.5) / SH_C0
+    with open(dst, "wb") as f:
+        f.write(header)
+        a.tofile(f)
+    return dst
+
+
 def _ransac_plane(Q, tol, accept=None, iters=1500, seed=0, max_samples=50000):
     """Plano dominante de Q (N x 3): RANSAC + ajuste por SVD de los inliers. tol(X) = tolerancia por punto.
     Devuelve (normal unitaria, centroide de los inliers), o None si ningun plano pasa accept."""
@@ -189,42 +222,30 @@ def euler_zxy(R):
     return tuple(float(v) for v in np.degrees([rx, np.arctan2(R[0, 2], R[2, 2]), np.arctan2(R[1, 0], R[1, 1])]))
 
 
-def inside_quad(x, y, quad):
-    """Máscara de los puntos (x, y) dentro del polígono quad [(x, y), ...] (regla par-impar)."""
-    import numpy as np
-    inside = np.zeros(np.shape(x), bool)
-    for (x0, y0), (x1, y1) in zip(quad, quad[1:] + quad[:1]):
-        cross = (y0 > y) != (y1 > y)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            xi = x0 + (y - y0) * (x1 - x0) / (y1 - y0)
-        inside ^= cross & (x < xi)
-    return inside
-
-
-def card_from_quad(P, cam_pos, cam_R, f_px, size, quad):
-    """Card sobre la superficie que muestra la región quad (esquinas en píxeles: abajo-izq., abajo-der.,
-    arriba-der., arriba-izq.). P = posiciones (mundo) de lo que se ve dentro de la región.
-    Ajusta un plano a P y lanza los rayos de la cámara por las esquinas hasta ese plano.
-    Devuelve translate, rotate (ZXY), size (ancho, alto), corners y la fracción de puntos en el plano."""
+def card_at_point(P, cam_pos, cam_R, f_px, size, pick, spin=0.0):
+    """Card pegada a la superficie bajo el píxel pick (Nuke: origen abajo a la izquierda).
+    P = posiciones (mundo) de lo que se ve alrededor del punto. Ajusta un plano a P, pone el centro donde
+    el rayo del punto corta ese plano y orienta la card con la superficie: en paredes, el borde de abajo
+    queda horizontal en el mundo; en pisos y techos, alineado con la cámara. spin gira en el plano (grados).
+    Devuelve translate, rotate (ZXY), distancia a la cámara y la fracción de P en el plano."""
     import numpy as np
     if len(P) < 20:
-        raise RuntimeError("Hay muy poca superficie dentro de la región.")
-    cam_pos = np.asarray(cam_pos, float)
+        raise RuntimeError("Hay muy poca superficie bajo el punto.")
+    cam_pos, cam_R = np.asarray(cam_pos, float), np.asarray(cam_R, float)
     dist = lambda X: np.maximum(np.linalg.norm(X - cam_pos, axis=1), 1)
     n, c = _ransac_plane(P, lambda X: 0.02 * dist(X), iters=600, max_samples=4000)  # rápido: se llama al arrastrar
     n = n if n @ (cam_pos - c) > 0 else -n  # la cara mira a la cámara
     W, H = size
-    d = np.array([[(u - W / 2.0) / f_px, (v - H / 2.0) / f_px, -1.0] for u, v in quad]) @ np.asarray(cam_R).T
+    d = cam_R @ np.array([(pick[0] - W / 2.0) / f_px, (pick[1] - H / 2.0) / f_px, -1.0])
     t = ((c - cam_pos) @ n) / (d @ n)
-    if np.any(t <= 0):
-        raise RuntimeError("Una esquina no apunta al plano: acerca las esquinas a la superficie.")
-    C = cam_pos + t[:, None] * d
-    x = (C[1] + C[2]) / 2 - (C[0] + C[3]) / 2
-    x = x - (x @ n) * n
-    w = np.linalg.norm(x)
-    x = x / w
+    if t <= 0:
+        raise RuntimeError("El punto no apunta a la superficie.")
+    up = np.array([0.0, 1.0, 0.0])
+    x = np.cross(up, n) if abs(n @ up) < 0.95 else cam_R[:, 0] - (cam_R[:, 0] @ n) * n
+    x /= np.linalg.norm(x)
     y = np.cross(n, x)
-    h = abs(((C[2] + C[3]) / 2 - (C[0] + C[1]) / 2) @ y)
+    a = np.radians(spin)
+    x, y = np.cos(a) * x + np.sin(a) * y, -np.sin(a) * x + np.cos(a) * y
     fit = float(np.mean(np.abs((P - c) @ n) < 0.02 * dist(P)))
-    return dict(translate=C.mean(0).tolist(), rotate=euler_zxy(np.c_[x, y, n]), size=(float(w), float(h)),
-                corners=C.tolist(), fit=fit)
+    return dict(translate=(cam_pos + t * d).tolist(), rotate=euler_zxy(np.c_[x, y, n]),
+                distance=float(t * np.linalg.norm(d)), fit=fit)

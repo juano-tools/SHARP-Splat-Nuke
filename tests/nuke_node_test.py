@@ -67,35 +67,43 @@ print("RESULT ajuste manual OK:", [round(v, 2) for v in rot])
 
 import numpy as np  # noqa: E402
 
-# card sobre la pared de ladrillo de la izquierda
-for i, xy in enumerate([(200, 700), (700, 800), (700, 1500), (200, 1550)], 1):
-    g["sharp_card_%d" % i].setValue(list(xy))
+# card en la pared de ladrillo de la izquierda: vertical, con el borde de abajo horizontal
+g["sharp_pick"].setValue([450, 1150])
 card = node.create_card(g)
-n = core.rot_zxy(*card["rotate"].value())[:, 2]
-print("RESULT card:", card["label"].value(), "normal", n.round(3), "pos", [round(v, 2) for v in card["translate"].value()])
-assert abs(n[1]) < 0.2, "la pared tendría que quedar vertical en el mundo nivelado"
+R = core.rot_zxy(*card["rotate"].value())
+print("RESULT card pared:", card["label"].value(), "normal", R[:, 2].round(3), "eje x", R[:, 0].round(3))
+assert abs(R[1, 2]) < 0.2 and abs(R[1, 0]) < 1e-6, "pared vertical y card nivelada"
 before = card["translate"].value()
-g["sharp_card_2"].setValue([900, 820])  # mover una esquina: la card viva se reajusta
+g["sharp_pick"].setValue([600, 1100])  # arrastrar el punto: la card viva lo sigue
 t0 = time.time()
 node.update_card(g)
-print("RESULT reajuste en %.2f s:" % (time.time() - t0), card["label"].value())
+print("RESULT reajuste en %.3f s" % (time.time() - t0))
 assert card["translate"].value() != before
+g["sharp_card_spin"].setValue(30)
+node.update_card(g)
+assert abs(core.rot_zxy(*card["rotate"].value())[1, 0]) > 0.3, "spin gira en el plano"
+g["sharp_card_spin"].setValue(0)
+with g:
+    grid = nuke.toNode("SHARP_card_grilla")
+    assert not grid["disable"].value() and not nuke.toNode("SHARP_grilla_over")["disable"].value()
+    assert not nuke.toNode("SHARP_grilla_render").hasError()
+assert grid["translate"].value() == card["translate"].value()
+print("RESULT grilla con la card:", [round(v, 2) for v in grid["translate"].value()])
 fixed = card
 card2 = node.create_card(g)  # la nueva pasa a ser la viva; la anterior queda fija
-g["sharp_card_2"].setValue([700, 800])
+g["sharp_pick"].setValue([450, 1150])
 node.update_card(g)
 assert fixed["translate"].value() != card2["translate"].value()
-for c in (fixed, card2):
-    nuke.delete(c)
 
 # card en el piso de la calle: horizontal y a la altura del suelo (0.2 por el "mover escena")
-for i, xy in enumerate([(1000, 60), (2400, 60), (2200, 280), (1200, 280)], 1):
-    g["sharp_card_%d" % i].setValue(list(xy))
-floor = node.create_card(g)
-n = core.rot_zxy(*floor["rotate"].value())[:, 2]
-print("RESULT card piso:", floor["label"].value(), "normal", n.round(3), "y", round(floor["translate"].value(1), 3))
-assert n[1] > 0.98 and abs(floor["translate"].value(1) - 0.2) < 0.15, "el piso tendría que quedar horizontal en Y≈0.2"
-nuke.delete(floor)
+g["sharp_pick"].setValue([1700, 170])
+node.update_card(g)
+n = core.rot_zxy(*card2["rotate"].value())[:, 2]
+print("RESULT card piso:", card2["label"].value(), "normal", n.round(3), "y", round(card2["translate"].value(1), 3))
+assert n[1] > 0.98 and abs(card2["translate"].value(1) - 0.2) < 0.15, "el piso tendría que quedar horizontal en Y≈0.2"
+g["sharp_card_grid"].setValue(False)
+for c in (fixed, card2):
+    nuke.delete(c)
 
 made = node.export(g, node.EXPORTS[-1])  # escena completa afuera: su SplatRender tiene que dar lo mismo
 sr_out = next(n for n in made if n.Class() == "SplatRender")
@@ -103,6 +111,14 @@ diff = max(abs(a - b) for a, b in zip(px(sr_out), ref))
 print("RESULT escena afuera:", [n.Class() for n in made], "dif max", diff)
 assert diff < 1e-3 and any(n.Class() == "ReadGeo2" for n in made), "la escena sacada tiene que dar el mismo render"
 for n in made:
+    nuke.delete(n)
+g["sharp_export_rec709"].setValue(True)
+prev = node.export(g, node.EXPORTS[1])
+gr = next(n for n in prev if n.Class() == "GeoReference")
+P, _ = core.read_ply(gr["file_path"].value())
+print("RESULT previs Rec.709:", os.path.basename(gr["file_path"].value()), len(P), "splats")
+assert gr["file_path"].value().endswith("_rec709.ply") and len(P) > 1000
+for n in prev:
     nuke.delete(n)
 cam = node.export(g, node.EXPORTS[0])[0]  # solo la cámara
 g.setInput(1, cam)
