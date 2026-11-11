@@ -112,6 +112,11 @@ Este paquete es solo la parte de Nuke. El trabajo de fondo es de:
 - Si ComfyUI no abre, el error muestra la ruta de su log (`sharp_splat_comfyui.log`, en la carpeta temporal de Windows).
 - Si alguien abre el script sin el plugin instalado, el nodo sigue renderizando con la última versión, pero los botones no funcionan.
 
+## Roadmap
+
+- **Setup de proyección desde Crear:** que el botón Crear también saque un setup de proyección de cámara, listo para proyectar el plate.
+- **Juntar varios splats en uno:** combinar los splats de varios cuadros o generaciones en una sola escena.
+
 ## Para desarrolladores
 
 - `nuke/sharp_splat/core.py`: lo que no depende de Nuke (metadata, workflow, PLY, piso).
