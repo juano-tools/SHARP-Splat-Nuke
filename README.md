@@ -119,3 +119,7 @@ Este paquete es solo la parte de Nuke. El trabajo de fondo es de:
 - `nuke/sharp_splat/comfy.py`: el cliente de ComfyUI (encola el workflow y espera el resultado).
 - `python tests/test_core.py`: pruebas sin Nuke (necesitan numpy).
 - `Nuke17.1.exe -i -t --nukex tests/nuke_node_test.py <plate.####.exr> <cuadro> <focal> <carpeta>`: flujo completo con ComfyUI y la GPU.
+
+## Licencia
+
+MIT (ver [LICENSE](LICENSE)). Cubre el código de este paquete; SHARP, ComfyUI y los nodos de la sección Créditos tienen sus propias licencias.
