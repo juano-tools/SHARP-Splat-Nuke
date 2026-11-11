@@ -116,6 +116,7 @@ Este paquete es solo la parte de Nuke. El trabajo de fondo es de:
 
 - **Setup de proyección desde Crear:** que el botón Crear también saque un setup de proyección de cámara, listo para proyectar el plate.
 - **Juntar varios splats en uno:** combinar los splats de varios cuadros o generaciones en una sola escena.
+- **Splat en el mundo de un matchmove:** ubicar el splat de un cuadro en la escena de un camera track (cámara + nube de puntos), para parches de clean plate o DMP con parallax.
 
 ## Para desarrolladores
 
